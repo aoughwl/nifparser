@@ -187,6 +187,11 @@ proc parseIfLike(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32;
   ## `if`/`elif`/`else` → `(if (elif cond body) (else body))`; also `when`.
   let kw = ps.tok(kwIdx)
   let refIndent = kw.col
+  let lineIndent = ps.lineIndentOf(kwIdx)     # enclosing-statement indent
+  # body indent of the first branch (for value-context elif/else alignment)
+  let firstColon = ps.findColon(kwIdx, ps.lineEnd(kwIdx))
+  let bodyIndent = if firstColon >= 0 and ps.tok(firstColon + 1).indent >= 0:
+                     ps.tok(firstColon + 1).indent else: int32(100000)
   b.addTree tag
   ps.emitInfo(b, kw.line, kw.col, pl, pc, false)   # if node = keyword pos
   var i = kwIdx
@@ -216,7 +221,8 @@ proc parseIfLike(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32;
     # continue to `elif`/`else` aligned with the `if` (multi-line) OR on the
     # same physical line (`indent < 0`, one-liner `if c: a else: b`).
     if nxt.kind == tkKeyword and (nxt.s == "elif" or nxt.s == "else") and
-       (nxt.indent == refIndent or nxt.indent < 0):
+       (nxt.indent < 0 or
+        (nxt.indent >= lineIndent and nxt.indent < bodyIndent)):
       continue
     else:
       break
@@ -244,8 +250,12 @@ proc parseCase(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32): int =
   let selEnd = if selColon >= 0: selColon else: selHi
   ps.parseExprRange(b, int32(kwIdx + 1), int32(selEnd), kw.line, kw.col)  # selector parent = case
   var i = selHi
-  while ps.tok(i).kind == tkKeyword and ps.tok(i).indent == refIndent and
-        (ps.tok(i).s == "of" or ps.tok(i).s == "else"):
+  # branches align with the FIRST `of` (its own indent), which need not equal the
+  # `case` keyword column (value-context `let x = case k:` sits mid-line).
+  let ofIndent = ps.tok(selHi).indent
+  while ps.tok(i).kind == tkKeyword and
+        (ps.tok(i).indent == ofIndent or ps.tok(i).indent < 0) and
+        (ps.tok(i).s == "of" or ps.tok(i).s == "else" or ps.tok(i).s == "elif"):
     let br = ps.tok(i)
     let bhi = ps.lineEnd(i)
     let bcolon = ps.findColon(i, bhi)
