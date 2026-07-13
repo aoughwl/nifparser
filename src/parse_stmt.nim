@@ -450,9 +450,26 @@ proc parseDefer(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32): int 
 # var / let / const sections (NO wrapper node — each def is a sibling)
 # ---------------------------------------------------------------------------
 
+proc parseCtrlFlowValue(ps: var Parser; b: var Builder; kwIdx: int;
+                        pl, pc: int32): int =
+  ## A control-flow expression used as a value that spans multiple lines
+  ## (`= try:` / `= if c:` with the body on following indented lines). Uses the
+  ## statement parsers (stmts-wrapped, multi-line aware) and returns the index
+  ## after the whole construct.
+  let s = ps.tok(kwIdx).s
+  if s == "try": result = ps.parseTry(b, kwIdx, pl, pc)
+  elif s == "if": result = ps.parseIfLike(b, kwIdx, pl, pc, "if")
+  elif s == "when": result = ps.parseIfLike(b, kwIdx, pl, pc, "when")
+  elif s == "case": result = ps.parseCase(b, kwIdx, pl, pc)
+  elif s == "block": result = ps.parseBlock(b, kwIdx, pl, pc)
+  else: result = kwIdx
+
 proc parseSectionDef(ps: var Parser; b: var Builder; lo, hi: int; tag: string;
-                     pl, pc: int32) =
+                     pl, pc: int32): int =
   ## One ident-def logical range `[lo, hi)` → one or more sibling section nodes.
+  ## Returns the index after the def (may extend past `hi` for a multi-line
+  ## control-flow value).
+  result = hi
   if ps.tok(lo).kind == tkParLe:
     # tuple decl: `var (a, b) = value` → (unpackdecl value (unpacktup (var a …) …))
     let lp = ps.tok(lo)
@@ -525,7 +542,17 @@ proc parseSectionDef(ps: var Parser; b: var Builder; lo, hi: int; tag: string;
     else:
       b.addEmpty
     if valLo >= 0 and valLo < hi:
-      ps.parseExprRange(b, int32(valLo), int32(hi), nTok.line, nTok.col)       # value
+      let vt = ps.tok(valLo)
+      # multi-line control-flow value (`= try:` / `= if c:` with body on later
+      # lines — the def line ends with the `:`): parse via the statement parser
+      # so the body is consumed once, and report the extended end.
+      if nameStarts.len == 1 and vt.kind == tkKeyword and
+         ps.tok(hi - 1).kind == tkColon and
+         (vt.s == "try" or vt.s == "if" or vt.s == "when" or
+          vt.s == "case" or vt.s == "block"):
+        result = ps.parseCtrlFlowValue(b, valLo, nTok.line, nTok.col)
+      else:
+        ps.parseExprRange(b, int32(valLo), int32(hi), nTok.line, nTok.col)     # value
     else:
       b.addEmpty
     b.endTree()
@@ -544,14 +571,13 @@ proc parseSection(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32;
       if ps.tok(i).kind == tkComment:     # doc comment in var/let/const section: dropped
         inc i; continue
       let dhi = ps.lineEnd(i)
-      ps.parseSectionDef(b, i, dhi, tag, pl, pc)
-      i = dhi
+      let consumed = ps.parseSectionDef(b, i, dhi, tag, pl, pc)
+      i = if consumed > dhi: consumed else: dhi
     result = i
   else:
     # inline single ident-def on the keyword's line, bounded at the next `;`
     let hi = ps.semiEnd(kwIdx, ps.lineEnd(kwIdx))
-    ps.parseSectionDef(b, kwIdx + 1, hi, tag, pl, pc)
-    result = hi
+    result = ps.parseSectionDef(b, kwIdx + 1, hi, tag, pl, pc)
 
 proc parsePragmaStmt(ps: var Parser; b: var Builder; braceIdx: int; pl, pc: int32): int =
   ## A statement that starts with `{.` is a pragma statement, NOT a `{ }` set.
