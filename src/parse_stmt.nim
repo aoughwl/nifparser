@@ -55,7 +55,7 @@ proc parseExprStmt(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32): int =
     ps.parseExprRange(b, lo, int32(eqi), op.line, op.col)
     let rt = ps.tok(eqi + 1)
     # multi-line control-flow RHS (`= if c:` / `= try:` with body on later lines)
-    if rt.kind == tkKeyword and ps.tok(int(hi) - 1).kind == tkColon and
+    if rt.kind == tkKeyword and
        (rt.s == "if" or rt.s == "when" or rt.s == "try" or
         rt.s == "case" or rt.s == "block"):
       result = ps.parseCtrlFlowValue(b, eqi + 1, op.line, op.col)
@@ -577,7 +577,6 @@ proc parseSectionDef(ps: var Parser; b: var Builder; lo, hi: int; tag: string;
       # lines — the def line ends with the `:`): parse via the statement parser
       # so the body is consumed once, and report the extended end.
       if nameStarts.len == 1 and vt.kind == tkKeyword and
-         ps.tok(hi - 1).kind == tkColon and
          (vt.s == "try" or vt.s == "if" or vt.s == "when" or
           vt.s == "case" or vt.s == "block"):
         result = ps.parseCtrlFlowValue(b, valLo, nTok.line, nTok.col)
