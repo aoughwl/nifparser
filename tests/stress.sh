@@ -26,6 +26,7 @@ mfiles=""; ofiles=""
 for nim in "${inputs[@]}"; do
   total=$((total+1))
   ref="$WORK/r.nif"; our="$WORK/o.nif"
+  rm -f "$ref" "$our"
   timeout 10 "$NIFLER"    p "$nim" "$ref" >/dev/null 2>"$WORK/r.err"
   if [ ! -s "$ref" ]; then oraclefail=$((oraclefail+1)); ofiles="$ofiles $nim"; continue; fi
   timeout 10 "$NIFPARSER" p "$nim" "$our" >/dev/null 2>"$WORK/o.err"
