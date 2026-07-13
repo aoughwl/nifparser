@@ -636,6 +636,40 @@ proc parseEnum(ps: var Parser; b: var Builder; enumIdx, defIndent: int;
   b.endTree()
   result = hi
 
+proc parseConcept(ps: var Parser; b: var Builder; conceptIdx, defIndent: int;
+                  pl, pc: int32): int =
+  ## `concept x` [+ indented body] → `(concept (stmts <params>) . . <body>)`,
+  ## where <body> is `(stmts …)` or `.` when empty.
+  let kw = ps.tok(conceptIdx)
+  b.addTree "concept"
+  ps.emitInfo(b, kw.line, kw.col, pl, pc, false)
+  let hi = ps.lineEnd(conceptIdx)
+  # params: whatever follows `concept` on its line → (stmts …)
+  b.addTree "stmts"
+  let pfirst = ps.tok(conceptIdx + 1)
+  ps.emitInfo(b, pfirst.line, pfirst.col, kw.line, kw.col, false)
+  var pi = conceptIdx + 1
+  while pi < hi and ps.tok(pi).kind != tkEof:
+    pi = ps.parseStmt(b, pi, pfirst.line, pfirst.col, hi)
+  b.endTree()   # params
+  b.addEmpty
+  b.addEmpty
+  # body: deeper-indented statements, else empty
+  let bodyFirst = ps.tok(hi)
+  if bodyFirst.kind != tkEof and bodyFirst.indent > int32(defIndent):
+    b.addTree "stmts"
+    ps.emitInfo(b, bodyFirst.line, bodyFirst.col, kw.line, kw.col, false)
+    var i = hi
+    let bodyRef = bodyFirst.indent - 1
+    while ps.tok(i).kind != tkEof and ps.tok(i).indent > bodyRef:
+      i = ps.parseStmt(b, i, bodyFirst.line, bodyFirst.col, -1)
+    b.endTree()
+    result = i
+  else:
+    b.addEmpty
+    result = hi
+  b.endTree()   # concept
+
 proc parseTypeDef(ps: var Parser; b: var Builder; nameIdx, typeKwCol: int;
                   pl, pc: int32): int =
   ## Emit one `(type name export generics pragma rhs...)`. Returns index after
@@ -685,6 +719,8 @@ proc parseTypeDef(ps: var Parser; b: var Builder; nameIdx, typeKwCol: int;
       resultIdx = ps.parseObject(b, rhsIdx, defIndent, eqTok.line, eqTok.col)
     elif r.kind == tkKeyword and r.s == "enum":
       resultIdx = ps.parseEnum(b, rhsIdx, defIndent, eqTok.line, eqTok.col)
+    elif r.kind == tkKeyword and r.s == "concept":
+      resultIdx = ps.parseConcept(b, rhsIdx, defIndent, eqTok.line, eqTok.col)
     elif r.kind == tkKeyword and (r.s == "ref" or r.s == "ptr") and
          ps.tok(rhsIdx + 1).kind == tkKeyword and ps.tok(rhsIdx + 1).s == "object":
       b.addTree r.s
