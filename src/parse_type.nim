@@ -379,6 +379,122 @@ proc emitPragmaSlot(ps: var Parser; b: var Builder; pragLo, pragHi: int;
   else:
     b.addEmpty
 
+proc emitFieldLine(ps: var Parser; b: var Builder; fi, lineHi: int;
+                   kl, kc: int32) =
+  ## Emit `(fld …)` nodes for one `name(, name)* [: type] [= val]` line, with
+  ## the type/value duplicated across a shared-type name group. `kl,kc` = the
+  ## parent (object/of) node position.
+  var j = fi
+  var names: seq[Token] = @[]
+  var exports: seq[bool] = @[]
+  var firstPragLo = -1
+  var firstPragHi = -1
+  while j < lineHi and (ps.tok(j).kind == tkIdent):
+    var nm = ps.tok(j)
+    var ex = false
+    var pl2 = -1
+    var ph2 = -1
+    ps.splitFieldName(j, lineHi, nm, ex, pl2, ph2)
+    names.add nm
+    exports.add ex
+    if pl2 >= 0 and firstPragLo < 0:
+      firstPragLo = pl2; firstPragHi = ph2
+    if j < lineHi and ps.tok(j).kind == tkComma: inc j
+    else: break
+  var tLo = -1
+  var tHi = lineHi
+  var vLo = -1
+  if j < lineHi and ps.tok(j).kind == tkColon:
+    inc j
+    tLo = j
+    tHi = ps.typeExprEnd(j)
+    j = tHi
+    if j < lineHi and ps.tok(j).kind == tkCurlyLe:   # trailing proc-type pragma
+      j = ps.matchClose(j) + 1
+      tHi = j
+  if j < lineHi and ps.tok(j).kind == tkOperator and ps.tok(j).s == "=":
+    vLo = j + 1
+  for ni in 0 ..< names.len:
+    let nm = names[ni]
+    b.addTree "fld"
+    ps.emitInfo(b, nm.line, nm.col, kl, kc, false)
+    b.addIdent nm.s
+    ps.emitInfo(b, nm.line, nm.col, nm.line, nm.col, false)
+    if exports[ni]: b.addRaw " x" else: b.addEmpty
+    ps.emitPragmaSlot(b, firstPragLo, firstPragHi, nm.line, nm.col)
+    if tLo >= 0:
+      parseTypeRange(ps, b, int32(tLo), int32(tHi), nm.line, nm.col)
+    else:
+      b.addEmpty
+    if vLo >= 0:
+      ps.parseExprRange(b, int32(vLo), int32(lineHi), nm.line, nm.col)
+    else:
+      b.addEmpty
+    b.endTree()
+
+proc emitFieldBody(ps: var Parser; b: var Builder; colonIdx, defIndent: int;
+                   kl, kc: int32): int =
+  ## Body of an object-variant `of`/`else` branch: bare `(fld …)` for a one-line
+  ## `of A: x: int`, or `(stmts (fld …)…)` for an indented block. Returns next idx.
+  let bodyStart = colonIdx + 1
+  let first = ps.tok(bodyStart)
+  if first.indent < 0:
+    # one-line: emit field(s) directly (bare)
+    let hi = ps.lineEnd(bodyStart)
+    ps.emitFieldLine(b, bodyStart, hi, kl, kc)
+    result = hi
+  else:
+    # indented block of fields wrapped in stmts
+    b.addTree "stmts"
+    ps.emitInfo(b, first.line, first.col, kl, kc, false)
+    var i = bodyStart
+    while ps.tok(i).kind != tkEof and ps.tok(i).indent > int32(defIndent):
+      if ps.tok(i).kind == tkComment: inc i; continue
+      let lh = ps.lineEnd(i)
+      ps.emitFieldLine(b, i, lh, first.line, first.col)
+      i = lh
+    b.endTree()
+    result = i
+
+proc parseObjectCase(ps: var Parser; b: var Builder; caseIdx, defIndent: int;
+                     kl, kc: int32): int =
+  ## Object variant: `case disc: T` + `of (ranges …): fields` / `else: fields`.
+  let kw = ps.tok(caseIdx)
+  b.addTree "case"
+  ps.emitInfo(b, kw.line, kw.col, kl, kc, false)
+  # discriminator field on the case line: `case name: Type`
+  let caseHi = ps.lineEnd(caseIdx)
+  ps.emitFieldLine(b, caseIdx + 1, caseHi, kw.line, kw.col)
+  var i = caseHi
+  let refIndent = kw.col
+  while ps.tok(i).kind != tkEof and ps.tok(i).indent >= int32(refIndent) and
+        ps.tok(i).kind == tkKeyword and
+        (ps.tok(i).s == "of" or ps.tok(i).s == "else" or ps.tok(i).s == "elif"):
+    let br = ps.tok(i)
+    let bhi = ps.lineEnd(i)
+    let bcolon = ps.findColon(i, bhi)
+    if br.s == "of":
+      b.addTree "of"
+      ps.emitInfo(b, br.line, br.col, kw.line, kw.col, false)
+      b.addTree "ranges"
+      ps.emitInfo(b, br.line, br.col, br.line, br.col, false)
+      let vals = ps.splitArgs(i + 1, if bcolon >= 0: bcolon else: bhi)
+      for vi in 0 ..< vals.len:
+        let vLo = vals[vi]
+        let vHi = if vi + 1 < vals.len: vals[vi+1] - 1 else: (if bcolon >= 0: bcolon else: bhi)
+        if vLo < vHi:
+          ps.parseExprRange(b, int32(vLo), int32(vHi), br.line, br.col)
+      b.endTree()   # ranges
+      i = ps.emitFieldBody(b, bcolon, refIndent, br.line, br.col)
+      b.endTree()   # of
+    else:
+      b.addTree(if br.s == "elif": "elif" else: "else")
+      ps.emitInfo(b, br.line, br.col, kw.line, kw.col, false)
+      i = ps.emitFieldBody(b, bcolon, refIndent, br.line, br.col)
+      b.endTree()
+  b.endTree()   # case
+  result = i
+
 proc parseObject(ps: var Parser; b: var Builder; objIdx, defIndent: int;
                  pl, pc: int32): int =
   ## `(object <inherit-or-.> (fld ...)...)`. `pl,pc` = type node position.
@@ -403,56 +519,11 @@ proc parseObject(ps: var Parser; b: var Builder; objIdx, defIndent: int;
   while ps.tok(fi).kind != tkEof and ps.tok(fi).indent > int32(defIndent):
     if ps.tok(fi).kind == tkComment:      # doc comment in object body: dropped
       inc fi; continue
+    if ps.tok(fi).kind == tkKeyword and ps.tok(fi).s == "case":
+      fi = ps.parseObjectCase(b, fi, defIndent, kw.line, kw.col)
+      continue
     let lineHi = ps.lineEnd(fi)
-    # only flat `name: type = val` fields (variant/when deferred)
-    var j = fi
-    var names: seq[Token] = @[]
-    var exports: seq[bool] = @[]
-    var firstPragLo = -1
-    var firstPragHi = -1
-    # collect names (comma-separated), each may carry `*`
-    while j < lineHi and (ps.tok(j).kind == tkIdent):
-      var nm = ps.tok(j)
-      var ex = false
-      var pl2 = -1
-      var ph2 = -1
-      ps.splitFieldName(j, lineHi, nm, ex, pl2, ph2)
-      names.add nm
-      exports.add ex
-      if pl2 >= 0 and firstPragLo < 0:
-        firstPragLo = pl2; firstPragHi = ph2
-      if j < lineHi and ps.tok(j).kind == tkComma: inc j
-      else: break
-    var tLo = -1
-    var tHi = lineHi
-    var vLo = -1
-    if j < lineHi and ps.tok(j).kind == tkColon:
-      inc j
-      tLo = j
-      tHi = ps.typeExprEnd(j)
-      j = tHi
-      if j < lineHi and ps.tok(j).kind == tkCurlyLe:   # trailing proc-type pragma
-        j = ps.matchClose(j) + 1
-        tHi = j
-    if j < lineHi and ps.tok(j).kind == tkOperator and ps.tok(j).s == "=":
-      vLo = j + 1
-    for ni in 0 ..< names.len:
-      let nm = names[ni]
-      b.addTree "fld"
-      ps.emitInfo(b, nm.line, nm.col, kw.line, kw.col, false)
-      b.addIdent nm.s
-      ps.emitInfo(b, nm.line, nm.col, nm.line, nm.col, false)
-      if exports[ni]: b.addRaw " x" else: b.addEmpty
-      ps.emitPragmaSlot(b, firstPragLo, firstPragHi, nm.line, nm.col)
-      if tLo >= 0:
-        parseTypeRange(ps, b, int32(tLo), int32(tHi), nm.line, nm.col)
-      else:
-        b.addEmpty
-      if vLo >= 0:
-        ps.parseExprRange(b, int32(vLo), int32(lineHi), nm.line, nm.col)
-      else:
-        b.addEmpty
-      b.endTree()
+    ps.emitFieldLine(b, fi, lineHi, kw.line, kw.col)
     fi = lineHi
   b.endTree()
   result = fi
