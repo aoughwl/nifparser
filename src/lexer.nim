@@ -20,7 +20,32 @@
 ## * comments `#...` and nested block comments `#[ ... ]#` (skipped).
 
 import tokens
-import std/parseutils
+import std/[parseutils, syncio]
+
+type
+  TabPolicy* = enum
+    ## What leading whitespace is accepted for *indentation*.
+    tpSpaces   ## spaces only (classic-Nim stance; DEFAULT). A stray `\t`
+               ## advances a single column, exactly as before.
+    tpTabs     ## tabs allowed for indentation; a `\t` advances `tabWidth` cols.
+    tpBoth     ## either tabs or spaces; a line that MIXES both in its leading
+               ## whitespace is reported (non-fatal) on stderr.
+
+  LexOptions* = object
+    ## Whitespace / indentation policy threaded into `tokenize`. The zero value
+    ## (`defaultLexOptions`) reproduces the historical, nifler-compatible
+    ## behaviour byte-for-byte.
+    tabPolicy*: TabPolicy   ## default tpSpaces
+    tabWidth*: int          ## columns a `\t` advances when tabs are permitted
+                            ## (default 8, the classic Nim/editor tab stop).
+                            ## Ignored under tpSpaces.
+    indentWidth*: int       ## advisory columns-per-indent-level (0 = disabled,
+                            ## the default). When >0, first-on-line tokens whose
+                            ## indent column is not a multiple of N are reported
+                            ## on stderr; parsing is NEVER affected.
+
+const
+  defaultLexOptions* = LexOptions(tabPolicy: tpSpaces, tabWidth: 8, indentWidth: 0)
 
 type
   Lexer = object
@@ -30,9 +55,14 @@ type
     line: int32
     col: int32
     atLineStart: bool  ## no significant token emitted on the current line yet
+    opts: LexOptions
+    sawSpaceInIndent: bool   ## tpBoth mixing detection: state for current line
+    sawTabInIndent: bool
+    warnedMixThisLine: bool
 
-proc initLexer(src: string): Lexer =
-  Lexer(src: src, n: src.len, pos: 0, line: 1, col: 0, atLineStart: true)
+proc initLexer(src: string; opts: LexOptions): Lexer =
+  Lexer(src: src, n: src.len, pos: 0, line: 1, col: 0, atLineStart: true,
+        opts: opts)
 
 proc cur(lx: Lexer): char =
   if lx.pos < lx.n: lx.src[lx.pos] else: '\0'
@@ -43,10 +73,19 @@ proc peek(lx: Lexer; k: int): char =
 
 proc advance(lx: var Lexer) =
   if lx.pos < lx.n:
-    if lx.src[lx.pos] == '\n':
+    let ch = lx.src[lx.pos]
+    if ch == '\n':
       inc lx.line
       lx.col = 0
       lx.atLineStart = true
+      lx.sawSpaceInIndent = false
+      lx.sawTabInIndent = false
+      lx.warnedMixThisLine = false
+    elif ch == '\t' and lx.opts.tabPolicy != tpSpaces:
+      # A tab counts as `tabWidth` columns once tabs are permitted, so a
+      # tab-indented line reports the same `indent` as its space-expanded
+      # equivalent. Under tpSpaces we fall through to width-1 (legacy) below.
+      inc lx.col, int32(lx.opts.tabWidth)
     else:
       inc lx.col
     inc lx.pos
@@ -76,6 +115,13 @@ proc startToken(lx: Lexer; kind: TokKind): Token =
   result = initToken(kind, lx.line, lx.col)
   if lx.atLineStart:
     result.indent = lx.col
+    # Advisory: --indent-width validation. Purely diagnostic; never alters the
+    # recorded indent, so parsing (the relative off-side rule) is untouched.
+    if lx.opts.indentWidth > 0 and lx.col > 0 and
+       (int(lx.col) mod lx.opts.indentWidth) != 0:
+      write stderr, "nifparser: indentation of " & $lx.col &
+        " column(s) at line " & $lx.line & " is not a multiple of --indent-width:" &
+        $lx.opts.indentWidth & "\n"
 
 # ---------------------------------------------------------------------------
 # escape decoding (mirrors classic getEscapedChar) — appends RAW decoded bytes
@@ -479,16 +525,27 @@ proc skipDocBlockComment(lx: var Lexer) =
     else:
       advance lx
 
-proc tokenize*(src: string): seq[Token] =
+proc tokenize*(src: string): seq[Token]
+
+proc tokenize*(src: string; opts: LexOptions): seq[Token] =
   ## Produce the full token list terminated by a `tkEof`. Whitespace and
   ## comments are consumed; the off-side `indent` field marks first-on-line
-  ## tokens.
-  var lx = initLexer(src)
+  ## tokens. `opts` controls tab/indent policy — see `LexOptions`.
+  var lx = initLexer(src, opts)
   result = @[]
   while lx.pos < lx.n:
     let before = result.len
     let c = lx.cur
     if c == ' ' or c == '\t' or c == '\r':
+      # tpBoth mixing detection: flag a line whose leading whitespace uses both
+      # tabs and spaces (classic Nim rejects tabs outright; we only warn).
+      if lx.atLineStart and lx.opts.tabPolicy == tpBoth and c != '\r':
+        if c == ' ': lx.sawSpaceInIndent = true
+        elif c == '\t': lx.sawTabInIndent = true
+        if lx.sawSpaceInIndent and lx.sawTabInIndent and not lx.warnedMixThisLine:
+          write stderr, "nifparser: line " & $lx.line &
+            " mixes tabs and spaces in its indentation\n"
+          lx.warnedMixThisLine = true
       advance lx
     elif c == '\n':
       advance lx
@@ -598,3 +655,8 @@ proc tokenize*(src: string): seq[Token] =
   var eof = initToken(tkEof, lx.line, lx.col)
   eof.indent = 0
   result.add eof
+
+proc tokenize*(src: string): seq[Token] =
+  ## Back-compat overload: legacy, nifler-compatible defaults (spaces-only
+  ## indentation, tab width 8 but unused, indent-width validation off).
+  tokenize(src, defaultLexOptions)
