@@ -14,7 +14,7 @@ the byte.
 - [Architecture](https://aoughwl.github.io/docs/nifparser/architecture) — fused parse + emit, the range-splitter, the module map, the oracle
 - [Grammar coverage](https://aoughwl.github.io/docs/nifparser/grammar) — every construct reproduced
 - [Differential testing](https://aoughwl.github.io/docs/nifparser/testing) — the `nifler` oracle harness
-- [Configuration](https://aoughwl.github.io/docs/nifparser/configuration) — `--curly`, `--tabs`, `--tab-width`, `--indent-width`
+- [Configuration](https://aoughwl.github.io/docs/nifparser/configuration) — brace blocks (`--curly`), indentation/whitespace policy, lint checks, `--strict`/`--max-depth`, and stdio I/O
 - [Known gaps](https://aoughwl.github.io/docs/nifparser/known-gaps) — the honest edge-case catalog
 
 ```sh
