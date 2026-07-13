@@ -89,12 +89,12 @@ proc parseArgList(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32) =
       ps.parseArg(b, int32(aLo), int32(aHi), pl, pc)
 
 proc parseIfExpr(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32;
-                 bare: bool) =
+                 bare: bool; tag: string) =
   ## Single-line `if C: A (elif C: A)* (else: B)` -> `(if (elif C (stmts A))...)`.
-  ## `bare` (only for the result of a parenthesized StmtListExpr) emits the
-  ## branch bodies as bare expressions instead of `(stmts …)`.
+  ## `tag` is `if` or `when`. `bare` (only for the result of a parenthesized
+  ## StmtListExpr) emits the branch bodies as bare expressions, not `(stmts …)`.
   let ifTok = ps.tok(int(lo))
-  b.addTree "if"
+  b.addTree tag
   ps.emitInfo(b, ifTok.line, ifTok.col, pl, pc, false)   # if node = 'if' kw pos
   # branch boundaries: depth-0 `elif`/`else` keywords.
   var i = int(lo)
@@ -241,7 +241,10 @@ proc parsePrimaryRange(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32) =
         ps.parseCastExpr(b, lo, hi, pl, pc)
         return
     of "if":
-      ps.parseIfExpr(b, lo, hi, pl, pc, false)
+      ps.parseIfExpr(b, lo, hi, pl, pc, false, "if")
+      return
+    of "when":
+      ps.parseIfExpr(b, lo, hi, pl, pc, false, "when")
       return
     of "try":
       # `try: A except: B` as a direct expression is stmts-wrapped, like the
@@ -394,7 +397,7 @@ proc parsePrimaryRange(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32) =
       if rt.kind == tkKeyword and rt.s == "try":
         ps.parseTryExpr(b, int32(segLo), int32(rpIdx), t.line, t.col)
       elif rt.kind == tkKeyword and rt.s == "if":
-        ps.parseIfExpr(b, int32(segLo), int32(rpIdx), t.line, t.col, true)
+        ps.parseIfExpr(b, int32(segLo), int32(rpIdx), t.line, t.col, true, "if")
       else:
         ps.parseExprRange(b, int32(segLo), int32(rpIdx), t.line, t.col)
       b.endTree()   # expr
@@ -429,8 +432,9 @@ proc parseExprRange(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32) =
   # Keyword-led expression forms must NOT be split by the operator scanner
   # (their conditions/bodies contain operators that are not top-level).
   let head = ps.tok(int(lo))
-  if head.kind == tkKeyword and (head.s == "if" or head.s == "try" or
-     head.s == "proc" or head.s == "func" or head.s == "iterator"):
+  if head.kind == tkKeyword and (head.s == "if" or head.s == "when" or
+     head.s == "try" or head.s == "proc" or head.s == "func" or
+     head.s == "iterator"):
     ps.parsePrimaryRange(b, lo, hi, pl, pc)
     return
   let split = ps.findSplit(int(lo), int(hi))
