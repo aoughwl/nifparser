@@ -4,9 +4,9 @@
 // compiled to JS through lengjs like any other module; the runtime provides only
 // `mmap`/`munmap` as the page primitives it sits on (Araq's boundary), so `alloc`/
 // `dealloc`/`realloc` and their free-list reuse all run as real Nim code.
-const _ab = new ArrayBuffer(1 << 26);           // 64 MiB linear memory
-const _dv = new DataView(_ab);
-const _u8 = new Uint8Array(_ab);
+const _ab = (globalThis.__leng_ab || (globalThis.__leng_ab = new ArrayBuffer(1 << 28)));           // 256 MiB linear memory (raised from 1<<26: the bump allocator has no GC, so large allocating loops / big output exhausted 64 MiB and threw "Offset is outside the bounds of the DataView")
+const _dv = (globalThis.__leng_dv || (globalThis.__leng_dv = new DataView(_ab)));
+const _u8 = (globalThis.__leng_u8 || (globalThis.__leng_u8 = new Uint8Array(_ab)));
 let _brk = 8;                                   // offset 0 reserved as nil
 
 // `allocFixed(n)` is the codegen's own storage for value aggregates (a C-stack
@@ -389,7 +389,7 @@ let strlit_0_I3312144845751804851_parq39nt2 = allocFixed(19);
 
 let strlit_0_I17569086427026686584_parq39nt2 = allocFixed(18);
 
-let strlit_0_I14976430568287796009_parq39nt2 = allocFixed(18);
+let strlit_0_I16958549946995210046_parq39nt2 = allocFixed(21);
 
 let strlit_0_I15261117590630161161_parq39nt2 = allocFixed(22);
 
@@ -1351,13 +1351,13 @@ mem.setI32((strlit_0_I17569086427026686584_parq39nt2 + 8), 0);
 
 mem.writeStr((strlit_0_I17569086427026686584_parq39nt2 + 12), "static");
 
-mem.setI32(strlit_0_I14976430568287796009_parq39nt2, 6);
+mem.setI32(strlit_0_I16958549946995210046_parq39nt2, 9);
 
-mem.setI32((strlit_0_I14976430568287796009_parq39nt2 + 4), 0);
+mem.setI32((strlit_0_I16958549946995210046_parq39nt2 + 4), 0);
 
-mem.setI32((strlit_0_I14976430568287796009_parq39nt2 + 8), 0);
+mem.setI32((strlit_0_I16958549946995210046_parq39nt2 + 8), 0);
 
-mem.writeStr((strlit_0_I14976430568287796009_parq39nt2 + 12), "Nifler");
+mem.writeStr((strlit_0_I16958549946995210046_parq39nt2 + 12), "nifparser");
 
 mem.setI32(strlit_0_I15261117590630161161_parq39nt2, 10);
 
@@ -17303,8 +17303,8 @@ function parseModule_0_parq39nt2(ps_84, b_67) {
   whileStmtLabel_0: {
     addHeader_0_nifjp9lau1(b_67, (() => {
       var _o = allocFixed(8);
-      mem.setU32(_o, 1718177534);
-      mem.setU32((_o + 4), strlit_0_I14976430568287796009_parq39nt2);
+      mem.setU32(_o, 1718185726);
+      mem.setU32((_o + 4), strlit_0_I16958549946995210046_parq39nt2);
       return _o;
     })(), (() => {
       var _o = allocFixed(8);
