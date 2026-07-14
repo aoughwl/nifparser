@@ -27,7 +27,7 @@ include parse_type
 include parse_stmt
 
 proc parseModule*(ps: var Parser; b: var Builder) =
-  b.addHeader "Nifler", "nim-parsed"
+  b.addHeader "nifparser", "nim-parsed"
   b.addTree "stmts"
   ps.emitInfo(b, 1, 0, 0, 0, true)   # module stmts: absolute (col 0, line 1, file)
   var i = 0
