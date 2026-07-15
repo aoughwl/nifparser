@@ -126,6 +126,16 @@ proc isOperandEnd(k: TokKind): bool =
   k == tkStrLit or k == tkRStrLit or k == tkTripleStrLit or
   k == tkIntLit or k == tkFloatLit or k == tkCharLit
 
+proc skipTrailingDoc(ps: Parser; i, refIndent: int): int =
+  ## Drop a trailing doc comment: a `##` line indented DEEPER than `refIndent`
+  ## (the enclosing statement list's indent) documents the preceding declaration.
+  ## nifler attaches it to that node (`indAndComment`) and, without `--docs`, does
+  ## not emit it. A comment AT `refIndent` is a standalone `(comment)` statement
+  ## and is kept by the caller's normal statement dispatch.
+  result = i
+  while ps.tok(result).kind == tkComment and ps.tok(result).indent > refIndent:
+    inc result
+
 proc findColon(ps: Parser; lo, hi: int): int =
   ## Body introducer in `[lo, hi)`: a depth-0 `:`. In curly mode, also a depth-0
   ## `{ … }` block — the first `{` (not a `{.` pragma) that follows an operand,
@@ -229,6 +239,7 @@ proc emitBody(ps: var Parser; b: var Builder; colonIdx: int; refIndent: int32;
             stmtHi = k; break
           inc k
       i = ps.parseStmt(b, i, first.line, first.col, int32(stmtHi))
+      i = ps.skipTrailingDoc(i, first.indent)   # drop the stmt's trailing `##` doc
   b.endTree()
   result = i
 

@@ -41,4 +41,7 @@ proc parseModule*(ps: var Parser; b: var Builder) =
       i = ps.parseTypeSection(b, i, 1, 0)
     else:
       i = ps.parseStmt(b, i, 1, 0, -1)
+    # A trailing `##` doc comment (indented deeper than the top level) documents
+    # the statement just parsed — nifler attaches it, so drop it here.
+    i = ps.skipTrailingDoc(i, 0)
   b.endTree()
