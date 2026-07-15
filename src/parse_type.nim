@@ -888,16 +888,23 @@ proc parseRoutine(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32;
                   tag: string): int =
   let kw = ps.tok(kwIdx)
   b.addTree tag
-  ps.emitInfo(b, kw.line, kw.col, pl, pc, false)           # routine node = keyword pos
   var i = kwIdx + 1
   # name — absent for an anonymous routine (`proc (x): T = …`), where the next
   # token is directly the params `(`/generics `[`/pragma `{`/`=`.
   let name = ps.tok(i)
-  if name.kind == tkParLe or name.kind == tkBracketLe or name.kind == tkCurlyLe or
-     (name.kind == tkOperator and name.s == "="):
+  let anon = name.kind == tkParLe or name.kind == tkBracketLe or
+             name.kind == tkCurlyLe or (name.kind == tkOperator and name.s == "=")
+  # An anonymous routine is an nkLambda whose info nifler takes from the token
+  # AFTER `proc` (the params `(`/generics `[`/`=`), and it stamps that on the empty
+  # NAME placeholder — not the proc node — with every child emitted relative to it.
+  # A NAMED routine anchors at the keyword. `aTok` is that per-kind anchor.
+  let aTok = if anon: name else: kw
+  if anon:
     b.addEmpty
+    ps.emitInfo(b, aTok.line, aTok.col, pl, pc, false)     # info on the empty name
   else:
-    ps.emitName(b, name, kw.line, kw.col)
+    ps.emitInfo(b, aTok.line, aTok.col, pl, pc, false)     # routine node = keyword pos
+    ps.emitName(b, name, aTok.line, aTok.col)
     inc i
   # export marker `*`
   if ps.tok(i).kind == tkOperator and ps.tok(i).s == "*":
@@ -908,19 +915,19 @@ proc parseRoutine(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32;
   b.addEmpty  # pattern
   # generics
   if ps.tok(i).kind == tkBracketLe:
-    i = ps.parseGenerics(b, i, kw.line, kw.col)
+    i = ps.parseGenerics(b, i, aTok.line, aTok.col)
   else:
     b.addEmpty
   # params + return type
   if ps.tok(i).kind == tkParLe:
-    i = ps.parseParams(b, i, kw.line, kw.col)
+    i = ps.parseParams(b, i, aTok.line, aTok.col)
   else:
     # no param parens (`proc main =`, `proc main: int =`): nifler still emits an
     # empty `(params)` node (positioned where the params would begin), then the
     # return type sibling if a `:` follows.
     let at = ps.tok(i)
     b.addTree "params"
-    ps.emitInfo(b, at.line, at.col, kw.line, kw.col, false)
+    ps.emitInfo(b, at.line, at.col, aTok.line, aTok.col, false)
     b.endTree()
     if ps.tok(i).kind == tkColon:
       inc i
@@ -931,7 +938,7 @@ proc parseRoutine(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32;
   # BODY, not pragmas — leave it for the body handler below.
   if ps.tok(i).kind == tkCurlyLe and
      (not ps.curly or ps.tok(i + 1).kind == tkDot):
-    i = ps.parsePragmas(b, i, kw.line, kw.col)
+    i = ps.parsePragmas(b, i, aTok.line, aTok.col)
   else:
     b.addEmpty
   b.addEmpty  # reserved / misc
@@ -944,7 +951,7 @@ proc parseRoutine(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32;
     let rb = ps.matchClose(i)
     let first = ps.tok(i + 1)
     b.addTree "stmts"
-    ps.emitInfo(b, first.line, first.col, kw.line, kw.col, false)
+    ps.emitInfo(b, first.line, first.col, aTok.line, aTok.col, false)
     var j = i + 1
     while j < rb and ps.tok(j).kind != tkEof:
       if ps.tok(j).kind == tkComment: inc j; continue
@@ -960,14 +967,14 @@ proc parseRoutine(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32;
     elif first.indent < 0:
       # one-line body on the same line as `=`, e.g. `proc f() = echo 1`
       b.addTree "stmts"
-      ps.emitInfo(b, first.line, first.col, kw.line, kw.col, false)
+      ps.emitInfo(b, first.line, first.col, aTok.line, aTok.col, false)
       let hi = ps.lineEnd(i)
       while i < hi and ps.tok(i).kind != tkEof:
         i = ps.parseStmt(b, i, first.line, first.col, -1)
       b.endTree()
     elif first.indent > refIndent:
       b.addTree "stmts"
-      ps.emitInfo(b, first.line, first.col, kw.line, kw.col, false)
+      ps.emitInfo(b, first.line, first.col, aTok.line, aTok.col, false)
       while ps.tok(i).kind != tkEof and ps.tok(i).indent > refIndent:
         i = ps.parseStmt(b, i, first.line, first.col, -1)
         i = ps.skipTrailingDoc(i, first.indent)   # drop each stmt's trailing `##` doc
