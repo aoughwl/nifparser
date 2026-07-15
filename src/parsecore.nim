@@ -321,6 +321,8 @@ proc parseStmt(ps: var Parser; b: var Builder; startIdx: int; pl, pc: int32;
                hiLimit: int): int
 proc parseTry(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32): int
 proc parseTryExpr(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32)
+proc parsePostExprBlock(ps: var Parser; b: var Builder; headLo, colonIdx: int;
+                        pl, pc: int32): int
 proc parseRoutine(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32;
                   tag: string): int
 # parse_type.nim implements:

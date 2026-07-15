@@ -642,6 +642,15 @@ proc parseSectionDef(ps: var Parser; b: var Builder; lo, hi: int; tag: string;
          (vt.s == "try" or vt.s == "if" or vt.s == "when" or
           vt.s == "case" or vt.s == "block"):
         result = ps.parseCtrlFlowValue(b, valLo, nTok.line, nTok.col)
+      elif nameStarts.len == 1 and vt.kind == tkIdent and
+           ps.depth0Colon(valLo, hi) > valLo:
+        # value-position postExprBlock: `let x = onRaiseQuit:` / `= build(a):`
+        # with the block body on following indented lines → `(call callee …
+        # (stmts body))`. The head must be an ident (a call/command callee) — an
+        # anonymous `proc (…): T = …` literal starts with a keyword and its `:` is
+        # a return type, not a block; a `:` inside brackets stays at depth > 0.
+        result = ps.parsePostExprBlock(b, valLo, ps.depth0Colon(valLo, hi),
+                                       nTok.line, nTok.col)
       else:
         ps.parseExprRange(b, int32(valLo), int32(hi), nTok.line, nTok.col)     # value
     else:
