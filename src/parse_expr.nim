@@ -538,7 +538,9 @@ proc parsePrimaryRangeImpl(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32
       ps.emitInfo(b, t.line, t.col, pl, pc, false)
       var segLo = int(lo) + 1
       for si in 0 ..< semis.len:
-        discard ps.parseStmt(b, segLo, inner.line, inner.col, semis[si])
+        # leading statements are children of the `stmts` node, which is anchored
+        # at the `(` (t) — not the first inner token — so pass t as their parent.
+        discard ps.parseStmt(b, segLo, t.line, t.col, semis[si])
         segLo = semis[si] + 1
       b.endTree()   # stmts
       # result expression = the final segment. As the result of a parenthesized

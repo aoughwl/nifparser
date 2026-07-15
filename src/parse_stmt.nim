@@ -646,24 +646,32 @@ proc parseSectionDef(ps: var Parser; b: var Builder; lo, hi: int; tag: string;
   let nameStarts = ps.splitArgs(lo, nameEnd)
   for ni in 0 ..< nameStarts.len:
     let nTok = ps.tok(nameStarts[ni])
+    # An exported name `Name*` is an nkPostfix in the classic AST; nifler anchors
+    # the section node at the NAME NODE's info (relLineInfo(n[i], …)), which for a
+    # postfix is the `*` position — so the name then gets a negative delta back to
+    # its real column. A non-exported name anchors at the name itself. Every child
+    # (name, pragma, type, value) is emitted relative to this anchor.
+    let hasExport = nameStarts[ni] + 1 < nameEnd and
+                    ps.tok(nameStarts[ni] + 1).kind == tkOperator and
+                    ps.tok(nameStarts[ni] + 1).s == "*"
+    let anchor = if hasExport: ps.tok(nameStarts[ni] + 1) else: nTok
     b.addTree tag
-    ps.emitInfo(b, nTok.line, nTok.col, pl, pc, false)       # section node = name pos
-    ps.emitName(b, nTok, nTok.line, nTok.col)   # name atom, or `(quoted …)`
+    ps.emitInfo(b, anchor.line, anchor.col, pl, pc, false)   # section node = name-node pos
+    ps.emitName(b, nTok, anchor.line, anchor.col)   # name atom, or `(quoted …)`
     # export marker `*`
-    if nameStarts[ni] + 1 < nameEnd and ps.tok(nameStarts[ni] + 1).kind == tkOperator and
-       ps.tok(nameStarts[ni] + 1).s == "*":
+    if hasExport:
       b.addRaw " x"
     else:
       b.addEmpty
     if pragLo >= 0:
-      discard ps.parsePragmas(b, pragLo, nTok.line, nTok.col)
+      discard ps.parsePragmas(b, pragLo, anchor.line, anchor.col)
     else:
       b.addEmpty   # pragma
     if typeLo >= 0 and typeLo < typeHi:
       # The type slot always goes through the TYPE parser (as nifler does): the
       # expression parser mishandles modifier keywords in generic args
       # (`seq[ref Foo]`, `sink seq[string]`) and `proc (…)` type signatures.
-      parseTypeRange(ps, b, int32(typeLo), int32(typeHi), nTok.line, nTok.col)
+      parseTypeRange(ps, b, int32(typeLo), int32(typeHi), anchor.line, anchor.col)
     else:
       b.addEmpty
     if valLo >= 0 and valLo < hi:
@@ -674,7 +682,7 @@ proc parseSectionDef(ps: var Parser; b: var Builder; lo, hi: int; tag: string;
       if nameStarts.len == 1 and vt.kind == tkKeyword and
          (vt.s == "try" or vt.s == "if" or vt.s == "when" or
           vt.s == "case" or vt.s == "block"):
-        result = ps.parseCtrlFlowValue(b, valLo, nTok.line, nTok.col)
+        result = ps.parseCtrlFlowValue(b, valLo, anchor.line, anchor.col)
       elif nameStarts.len == 1 and vt.kind == tkIdent and
            ps.depth0Colon(valLo, hi) > valLo:
         # value-position postExprBlock: `let x = onRaiseQuit:` / `= build(a):`
@@ -683,9 +691,9 @@ proc parseSectionDef(ps: var Parser; b: var Builder; lo, hi: int; tag: string;
         # anonymous `proc (…): T = …` literal starts with a keyword and its `:` is
         # a return type, not a block; a `:` inside brackets stays at depth > 0.
         result = ps.parsePostExprBlock(b, valLo, ps.depth0Colon(valLo, hi),
-                                       nTok.line, nTok.col)
+                                       anchor.line, anchor.col)
       else:
-        ps.parseExprRange(b, int32(valLo), int32(hi), nTok.line, nTok.col)     # value
+        ps.parseExprRange(b, int32(valLo), int32(hi), anchor.line, anchor.col)  # value
     else:
       b.addEmpty
     b.endTree()
