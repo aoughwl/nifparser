@@ -829,21 +829,28 @@ proc parsePostExprBlock(ps: var Parser; b: var Builder; headLo, colonIdx: int;
         doIdx = k; break
       inc k
     if doIdx > headLo and ps.tok(doIdx + 1).kind == tkParLe:
-      let dk = ps.tok(doIdx)
+      # Anchoring (reverse-engineered from nifler on `expr do (…) -> T: body`):
+      #  • the CALL node anchors at the callee expression's info — the `.` of a
+      #    dotted callee (calleeAnchor), so the callee child gets delta 0;
+      #  • the DO node (nkDo) anchors at the BODY's first token, NOT the `do`
+      #    keyword — so `(params…)` carries a `@col,~1` delta back up to the `(`
+      #    and the body `(stmts)` becomes delta 0 against the do.
+      let callAnchor = ps.calleeAnchor(headLo, doIdx)
+      let bodyFirst = ps.tok(colonIdx + 1)
       b.addTree "call"
-      ps.emitInfo(b, head.line, head.col, pl, pc, false)
+      ps.emitInfo(b, callAnchor.line, callAnchor.col, pl, pc, false)
       # callee before `do`: `foo(x)` splits into callee+args, else a bare expr.
       if ps.tok(doIdx - 1).kind == tkParRi:
         let rparen = doIdx - 1
         let lparen = ps.matchOpen(rparen)
-        ps.parseExprRange(b, int32(headLo), int32(lparen), head.line, head.col)
-        ps.parseArgList(b, int32(lparen + 1), int32(rparen), head.line, head.col)
+        ps.parseExprRange(b, int32(headLo), int32(lparen), callAnchor.line, callAnchor.col)
+        ps.parseArgList(b, int32(lparen + 1), int32(rparen), callAnchor.line, callAnchor.col)
       else:
-        ps.parseExprRange(b, int32(headLo), int32(doIdx), head.line, head.col)
+        ps.parseExprRange(b, int32(headLo), int32(doIdx), callAnchor.line, callAnchor.col)
       b.addTree "do"
-      ps.emitInfo(b, dk.line, dk.col, head.line, head.col, false)
-      discard ps.parseParams(b, doIdx + 1, dk.line, dk.col)   # (params …) + ret type
-      result = ps.emitBody(b, colonIdx, refIndent, dk.line, dk.col)
+      ps.emitInfo(b, bodyFirst.line, bodyFirst.col, callAnchor.line, callAnchor.col, false)
+      discard ps.parseParams(b, doIdx + 1, bodyFirst.line, bodyFirst.col)   # (params …) + ret type
+      result = ps.emitBody(b, colonIdx, refIndent, bodyFirst.line, bodyFirst.col)
       b.endTree()   # do
       b.endTree()   # call
       return
