@@ -10,10 +10,16 @@ parser) → NIF`, with **no** semantic checking and no symbol resolution. Every
 symbol comes out as a bare identifier. `nifparser` reproduces that output
 without depending on the classic-Nim compiler.
 
-> Status: **bootstrap skeleton.** The parser spine + emit plumbing + the
-> differential harness are in place, and the trivial corpus already matches
-> native nifler **byte-for-byte**. Most of the grammar is still to be filled in
-> — see the checklist at the bottom.
+> Status: **mature for its scope.** The full parser + emit pipeline and the
+> differential harness are in place: the entire nimony standard library
+> round-trips structurally, and 46/47 corpus programs match native nifler to the
+> byte — apart from the `(.vendor "nifparser")` header nifparser stamps as its
+> own identity (the harness neutralizes that one line). Remaining edge cases are
+> catalogued in [Known gaps](https://aoughwl.github.io/docs/nifparser/known-gaps).
+>
+> The checklists further down are historical bootstrap notes; the current,
+> authoritative reference is the docs site:
+> **[aoughwl.github.io/docs/nifparser](https://aoughwl.github.io/docs/nifparser)**.
 
 ---
 
