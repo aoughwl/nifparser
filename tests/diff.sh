@@ -70,7 +70,13 @@ for nim in *.nim; do
   python3 "$CANON" "$ref" > "$WORK/$base.ref.canon"
   python3 "$CANON" "$our" > "$WORK/$base.our.canon"
 
-  if cmp -s "$ref" "$our"; then
+  # EXACT byte-match, modulo the one intentional divergence: the
+  # `(.vendor "…")` header (nifparser stamps "nifparser", nifler "Nifler").
+  # Neutralise ONLY that directive on both sides before the byte compare;
+  # every other byte must still be identical.
+  sed 's/^(\.vendor "[^"]*")/(.vendor "<vendor>")/' "$ref" > "$WORK/$base.ref.exact"
+  sed 's/^(\.vendor "[^"]*")/(.vendor "<vendor>")/' "$our" > "$WORK/$base.our.exact"
+  if cmp -s "$WORK/$base.ref.exact" "$WORK/$base.our.exact"; then
     exact_tag="EXACT"; exact=$((exact+1))
   else
     exact_tag="struct"

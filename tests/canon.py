@@ -105,13 +105,29 @@ def tokenize(text: str):
     return toks
 
 
+def neutralize_vendor(toks):
+    """Blank the value of the `(.vendor "…")` header directive.
+
+    nifparser stamps its own vendor identity ("nifparser") where classic nifler
+    writes "Nifler". That single header string is the ONE intentional divergence;
+    everything else must still match byte-for-byte structurally. We replace only
+    the vendor string token with a fixed placeholder so the directive's STRUCTURE
+    is still compared, but its identity value is not. Nothing else is touched.
+    """
+    out = list(toks)
+    for i in range(len(out) - 2):
+        if out[i] == "(" and out[i + 1] == ".vendor" and out[i + 2].startswith('"'):
+            out[i + 2] = '"<vendor>"'
+    return out
+
+
 def main():
     if len(sys.argv) > 1:
         with open(sys.argv[1], "r", encoding="utf-8", errors="replace") as f:
             text = f.read()
     else:
         text = sys.stdin.read()
-    for t in tokenize(text):
+    for t in neutralize_vendor(tokenize(text)):
         sys.stdout.write(t + "\n")
 
 
