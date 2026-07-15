@@ -227,15 +227,23 @@ proc emitBody(ps: var Parser; b: var Builder; colonIdx: int; refIndent: int32;
       block:
         var d = 0
         var k = i
+        var sawCf = false   # a depth-0 if/when/case/try owns any following else/elif/of
         let lend = ps.lineEnd(i)
         while k < lend:
           let kk = ps.tok(k)
           if isOpenBracket(kk.kind): inc d
           elif isCloseBracket(kk.kind):
             if d > 0: dec d
-          elif d == 0 and k > i and kk.kind == tkKeyword and kk.indent < 0 and
+          elif d == 0 and kk.kind == tkKeyword and
+               (kk.s == "if" or kk.s == "when" or kk.s == "case" or kk.s == "try"):
+            sawCf = true
+          elif d == 0 and k > i and not sawCf and kk.kind == tkKeyword and
+               kk.indent < 0 and
                (kk.s == "elif" or kk.s == "else" or kk.s == "of" or
                 kk.s == "except" or kk.s == "finally"):
+            # a branch keyword that belongs to the ENCLOSING control flow
+            # (`if c:\n  body() else: x`), not to an if/case EXPRESSION in this
+            # statement's own args (`f(if c: a else: b)`).
             stmtHi = k; break
           inc k
       i = ps.parseStmt(b, i, first.line, first.col, int32(stmtHi))
@@ -920,6 +928,14 @@ proc parseOneStmt(ps: var Parser; b: var Builder; startIdx: int; pl, pc: int32;
         inc k
       if not cf:
         return ps.parsePostExprBlock(b, startIdx, pcolon, pl, pc)
+    # Fallback: the first depth-0 `:` belonged to an if/case/proc in the args, but
+    # the head LINE still ends with a real block colon —
+    # `addUIntTypedOp dest, if k: A else: B, 8, info:` with the body on the next
+    # lines. A trailing depth-0 `:` at end of line is that block introducer.
+    let eol = lineHi - 1
+    if eol > startIdx and ps.tok(eol).kind == tkColon and eol > pcolon and
+       ps.findAssign(startIdx, eol) < 0:
+      return ps.parsePostExprBlock(b, startIdx, eol, pl, pc)
   # expression / command / assignment statement (bounded by the logical line,
   # any tighter `hiLimit`, and the next `;`)
   var bound = ps.lineEnd(startIdx)
