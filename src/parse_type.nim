@@ -955,6 +955,7 @@ proc parseRoutine(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32;
       ps.emitInfo(b, first.line, first.col, kw.line, kw.col, false)
       while ps.tok(i).kind != tkEof and ps.tok(i).indent > refIndent:
         i = ps.parseStmt(b, i, first.line, first.col, -1)
+        i = ps.skipTrailingDoc(i, first.indent)   # drop each stmt's trailing `##` doc
       b.endTree()
     else:
       b.addEmpty

@@ -484,7 +484,13 @@ proc parseTry(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32): int =
       b.addTree "except"
       ps.emitInfo(b, br.line, br.col, kw.line, kw.col, false)
       if i + 1 < bcolon:
-        ps.parseExprRange(b, int32(i + 1), int32(bcolon), br.line, br.col)  # exc type
+        # `except A, B:` lists each exception type as its own child.
+        let ecStarts = ps.splitArgs(i + 1, bcolon)
+        for ei in 0 ..< ecStarts.len:
+          let aLo = ecStarts[ei]
+          let aHi = if ei + 1 < ecStarts.len: ecStarts[ei+1] - 1 else: bcolon
+          if aLo < aHi:
+            ps.parseExprRange(b, int32(aLo), int32(aHi), br.line, br.col)
       else:
         b.addEmpty   # bare `except:` → `.`
       i = ps.emitBody(b, bcolon, refIndent, br.line, br.col)
