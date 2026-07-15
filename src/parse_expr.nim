@@ -118,6 +118,19 @@ proc parseArgList(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32) =
     if aLo < aHi:
       ps.parseArg(b, int32(aLo), int32(aHi), pl, pc)
 
+proc parseBareResultBody(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32) =
+  ## The body of a branch in a parenthesized StmtListExpr RESULT (rendered bare,
+  ## without a `(stmts)` wrapper). Its content is still a statement in the classic
+  ## parser, so a command there is a STATEMENT command — callee-anchored via
+  ## parseCommand, not the expr command path's first-arg anchor. Control-flow and
+  ## plain expressions keep the bare expression rendering.
+  let head = ps.tok(int(lo))
+  let ce = ps.cmdCalleeEnd(int(lo), int(hi))
+  if head.kind == tkIdent and ce < int(hi) and ps.startsArg(ce, int(hi)):
+    ps.parseCommand(b, lo, hi, pl, pc)
+  else:
+    ps.parseExprRange(b, lo, hi, pl, pc)
+
 proc parseIfExpr(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32;
                  bare: bool; tag: string) =
   ## Single-line `if C: A (elif C: A)* (else: B)` -> `(if (elif C (stmts A))...)`.
@@ -152,7 +165,7 @@ proc parseIfExpr(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32;
       ps.emitInfo(b, kw.line, kw.col, ifTok.line, ifTok.col, false)
       let bt = ps.tok(bodyLo)
       if bare:
-        ps.parseExprRange(b, int32(bodyLo), int32(nxt), kw.line, kw.col)
+        ps.parseBareResultBody(b, int32(bodyLo), int32(nxt), kw.line, kw.col)
       else:
         b.addTree "stmts"
         ps.emitInfo(b, bt.line, bt.col, kw.line, kw.col, false)
@@ -167,7 +180,7 @@ proc parseIfExpr(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32;
       ps.parseExprRange(b, int32(i + 1), int32(colon), ct.line, ct.col)
       let bt = ps.tok(bodyLo)
       if bare:
-        ps.parseExprRange(b, int32(bodyLo), int32(nxt), ct.line, ct.col)
+        ps.parseBareResultBody(b, int32(bodyLo), int32(nxt), ct.line, ct.col)
       else:
         b.addTree "stmts"
         ps.emitInfo(b, bt.line, bt.col, ct.line, ct.col, false)
@@ -234,19 +247,19 @@ proc parseCaseExpr(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32) =
         if aLo < aHi:
           ps.parseExprRange(b, int32(aLo), int32(aHi), br.line, br.col)  # value parent = of
       b.endTree()                                          # ranges
-      ps.parseExprRange(b, int32(bodyLo), int32(nxt), br.line, br.col)   # BARE body
+      ps.parseBareResultBody(b, int32(bodyLo), int32(nxt), br.line, br.col)   # BARE body
       b.endTree()                                          # of
     elif isElse:
       b.addTree "else"
       ps.emitInfo(b, br.line, br.col, kw.line, kw.col, false)
-      ps.parseExprRange(b, int32(bodyLo), int32(nxt), br.line, br.col)   # BARE body
+      ps.parseBareResultBody(b, int32(bodyLo), int32(nxt), br.line, br.col)   # BARE body
       b.endTree()
     else:                                                  # elif
       b.addTree "elif"
       let ct = ps.tok(i + 1)
       ps.emitInfo(b, ct.line, ct.col, kw.line, kw.col, false)
       ps.parseExprRange(b, int32(i + 1), int32(colon), ct.line, ct.col)  # condition
-      ps.parseExprRange(b, int32(bodyLo), int32(nxt), ct.line, ct.col)   # BARE body
+      ps.parseBareResultBody(b, int32(bodyLo), int32(nxt), ct.line, ct.col)   # BARE body
       b.endTree()
     i = nxt
   b.endTree()   # close the `case` node

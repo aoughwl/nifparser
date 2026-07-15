@@ -319,6 +319,7 @@ proc parseCaseExpr(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32)
 # parse_stmt.nim implements:
 proc parseStmt(ps: var Parser; b: var Builder; startIdx: int; pl, pc: int32;
                hiLimit: int): int
+proc parseCommand(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32)
 proc parseTry(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32): int
 proc parseTryExpr(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32)
 proc parsePostExprBlock(ps: var Parser; b: var Builder; headLo, colonIdx: int;
