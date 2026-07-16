@@ -340,7 +340,20 @@ proc parsePragmas(ps: var Parser; b: var Builder; braceIdx: int; pl, pc: int32):
     let aLo = starts[ai]
     let aHi = if ai + 1 < starts.len: starts[ai+1] - 1 else: hi
     if aLo < aHi:
-      ps.parseArg(b, int32(aLo), int32(aHi), brace.line, brace.col)
+      # `cast` pragma: `{.cast(noSideEffect).}` is NOT a call — nifler emits
+      # `(cast . <expr>)` (empty type slot, the pragma expr as the value).
+      let t0 = ps.tok(aLo)
+      if t0.kind == tkKeyword and t0.s == "cast" and
+         aLo + 1 < aHi and ps.tok(aLo + 1).kind == tkParLe and
+         ps.matchClose(aLo + 1) == aHi - 1:
+        let rp = aHi - 1
+        b.addTree "cast"
+        ps.emitInfo(b, t0.line, t0.col, brace.line, brace.col, false)
+        b.addEmpty                                    # empty target-type slot
+        ps.parseExprRange(b, int32(aLo + 2), int32(rp), t0.line, t0.col)
+        b.endTree()
+      else:
+        ps.parseArg(b, int32(aLo), int32(aHi), brace.line, brace.col)
   b.endTree()
   result = rb + 1
 
