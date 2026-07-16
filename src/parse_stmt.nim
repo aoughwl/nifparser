@@ -47,8 +47,20 @@ proc parseExprStmt(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32): int =
                  (head.kind == tkKeyword and head.s == "addr")
   let isCmd = calleeOk and ce < int(hi) and ps.startsArg(ce, int(hi))
   if isCmd:
-    ps.parseCommand(b, lo, hi, pl, pc)
-    return
+    # A command whose trailing argument is an anonymous routine header ending in
+    # `=` (`setTerminate proc() {.noconv.} =⏎ <indented body>`) has its body on the
+    # following indented lines, past this line's end. Extend the range to cover
+    # them so parseCommand's arg parser captures the anon routine's body.
+    var chi = int(hi)
+    if ps.tok(ce).kind == tkKeyword and
+       (ps.tok(ce).s == "proc" or ps.tok(ce).s == "func" or ps.tok(ce).s == "iterator"):
+      let stmtIndent = if ps.tok(lo).indent >= 0: int(ps.tok(lo).indent)
+                       else: int(ps.tok(lo).col)
+      while ps.tok(chi).kind != tkEof and ps.tok(chi).indent >= 0 and
+            int(ps.tok(chi).indent) > stmtIndent:
+        chi = ps.lineEnd(chi)
+    ps.parseCommand(b, lo, int32(chi), pl, pc)
+    return int(chi)
   let eqi = ps.findAssign(int(lo), int(hi))
   if eqi >= 0:
     let op = ps.tok(eqi)
