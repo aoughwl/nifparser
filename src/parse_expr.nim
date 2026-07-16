@@ -112,10 +112,15 @@ proc parseArg(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32) =
 
 proc parseArgList(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32) =
   ## Emit each comma-separated element of `[lo, hi)` as an arg, parent (pl,pc).
+  ## A trailing comma (`[1, -5,]`) is a separator, not an empty element: the last
+  ## slice excludes it so the element parses cleanly (a `-N` fold in last position
+  ## needs `lo+2 == hi` exactly and would otherwise choke on the dangling comma).
   let starts = ps.splitArgs(int(lo), int(hi))
+  let hiTrim = if int(hi) - 1 >= int(lo) and ps.tok(int(hi) - 1).kind == tkComma:
+                 int(hi) - 1 else: int(hi)
   for ai in 0 ..< starts.len:
     let aLo = starts[ai]
-    let aHi = if ai + 1 < starts.len: starts[ai+1] - 1 else: int(hi)
+    let aHi = if ai + 1 < starts.len: starts[ai+1] - 1 else: hiTrim
     if aLo < aHi:
       ps.parseArg(b, int32(aLo), int32(aHi), pl, pc)
 
