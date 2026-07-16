@@ -341,6 +341,31 @@ proc splitArgs(ps: Parser; lo, hi: int): seq[int] =
       if i + 1 < hi: result.add(i + 1)
     inc i
 
+proc splitPragmaItems(ps: Parser; lo, hi: int): seq[int] =
+  ## Like `splitArgs`, but a pragma list separates items by a comma OR by a bare
+  ## line break: Nim's parsePragma loops `exprColonEqExpr` and treats each logical
+  ## line as an item, so `{.importc: "x", pure, final⏎ header: "y".}` has `final`
+  ## and `header` as separate pragmas even with the comma missing. A depth-0
+  ## newline whose previous token does not force a continuation starts a new item.
+  result = @[]
+  if lo >= hi: return
+  result.add lo
+  var depth = 0
+  var i = lo
+  while i < hi:
+    let t = ps.tok(i)
+    if isOpenBracket(t.kind): inc depth
+    elif isCloseBracket(t.kind):
+      if depth > 0: dec depth
+    elif depth == 0 and i > lo:
+      let prev = ps.tok(i - 1)
+      if t.kind == tkComma:
+        if i + 1 < hi: result.add(i + 1)
+      elif prev.kind != tkComma and t.line != prev.line and
+           not continuesLine(prev):
+        result.add i          # newline-separated item (missing comma)
+    inc i
+
 # ---------------------------------------------------------------------------
 # FORWARD DECLS — cross-file call surface (append-only shared edit point)
 # ---------------------------------------------------------------------------

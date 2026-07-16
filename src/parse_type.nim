@@ -377,10 +377,15 @@ proc parsePragmas(ps: var Parser; b: var Builder; braceIdx: int; pl, pc: int32):
        nxt.kind == tkStrLit or nxt.kind == tkIntLit or nxt.kind == tkFloatLit:
       ps.emitName(b, ps.tok(lo), brace.line, brace.col)
       inc lo
-  let starts = ps.splitArgs(lo, hi)
+  let starts = ps.splitPragmaItems(lo, hi)
   for ai in 0 ..< starts.len:
     let aLo = starts[ai]
-    let aHi = if ai + 1 < starts.len: starts[ai+1] - 1 else: hi
+    # a comma-terminated item excludes the comma; a newline-separated one (no
+    # comma before the next start) keeps every token up to that next start.
+    let aHi = if ai + 1 < starts.len:
+                (if ps.tok(starts[ai+1] - 1).kind == tkComma: starts[ai+1] - 1
+                 else: starts[ai+1])
+              else: hi
     if aLo < aHi:
       # `cast` pragma: `{.cast(noSideEffect).}` is NOT a call — nifler emits
       # `(cast . <expr>)` (empty type slot, the pragma expr as the value).
