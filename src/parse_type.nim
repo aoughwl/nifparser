@@ -17,6 +17,8 @@ proc parseParams(ps: var Parser; b: var Builder; lpIdx: int; pl, pc: int32;
 proc parsePragmas(ps: var Parser; b: var Builder; braceIdx: int; pl, pc: int32): int
 proc parseGenerics(ps: var Parser; b: var Builder; lbIdx: int; pl, pc: int32): int
 proc parseObject(ps: var Parser; b: var Builder; objIdx, defIndent: int; pl, pc: int32): int
+proc parseObjectCase(ps: var Parser; b: var Builder; caseIdx, defIndent: int; kl, kc: int32): int
+proc parseObjectWhen(ps: var Parser; b: var Builder; whenIdx, defIndent: int; kl, kc: int32): int
 proc parseEnum(ps: var Parser; b: var Builder; enumIdx, defIndent: int; pl, pc: int32): int
 proc parseTypeDef(ps: var Parser; b: var Builder; nameIdx, typeKwCol: int; pl, pc: int32): int
 
@@ -551,6 +553,13 @@ proc emitFieldBody(ps: var Parser; b: var Builder; colonIdx, defIndent: int;
     var i = bodyStart
     while ps.tok(i).kind != tkEof and ps.tok(i).indent > int32(defIndent):
       if ps.tok(i).kind == tkComment: inc i; continue
+      # A branch body is itself an object-field list, so it can nest `case`/`when`
+      # groups (e.g. `when A: x; when B: y`) — dispatch them like parseObject does,
+      # not as flat field lines (which would drop them).
+      if ps.tok(i).kind == tkKeyword and ps.tok(i).s == "case":
+        i = ps.parseObjectCase(b, i, defIndent, first.line, first.col); continue
+      if ps.tok(i).kind == tkKeyword and ps.tok(i).s == "when":
+        i = ps.parseObjectWhen(b, i, defIndent, first.line, first.col); continue
       let lh = ps.lineEnd(i)
       ps.emitFieldLine(b, i, lh, first.line, first.col)
       i = lh
