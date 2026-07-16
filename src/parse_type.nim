@@ -139,6 +139,7 @@ proc parseTypeRangeImpl(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32) =
     b.addTree "object"
     ps.emitInfo(b, first.line, first.col, pl, pc, false)
     b.endTree()
+    ps.section = "fld"   # nkObjectTy leaks FldL into nifler's section state
     return
   # parenthesized anonymous tuple type: `(string, int)` → `(tup string int)`,
   # `(line: int32, col: int32)` → `(tup (kv line int32) …)`. A SINGLE grouped
@@ -445,7 +446,10 @@ proc emitTypevarGroup(ps: var Parser; b: var Builder; gLo, gHi: int;
   if ci < gHi and ps.tok(ci).kind == tkColon:
     cLo = ci + 1
   for nm in names:
-    b.addTree "typevar"
+    # nifler's un-scoped section state: a constraint containing `object`/`tuple`
+    # leaks `fld` into ps.section, so the NEXT typevar is tagged `fld` not
+    # `typevar` (see `iterator fields[S: tuple|object, T: tuple|object]`).
+    b.addTree ps.section
     ps.emitInfo(b, nm.line, nm.col, tvL, tvC, false)        # typevar node = name pos
     ps.emitName(b, nm, nm.line, nm.col)   # typevar name, or `(quoted …)`
     b.addEmpty                                              # export (always .)
@@ -464,6 +468,7 @@ proc parseGenerics(ps: var Parser; b: var Builder; lbIdx: int; pl, pc: int32): i
   let rb = ps.matchClose(lbIdx)
   b.addTree "typevars"
   ps.emitInfo(b, lb.line, lb.col, pl, pc, false)           # typevars node = '[' pos
+  ps.section = "typevar"   # fresh; constraints may leak `fld`/`param` onward
   # Split into param groups on `;`, and on a `,` that follows a depth-0 `:`
   # constraint (`[T: A, L: B]` = two params) — a `,` BEFORE any `:` builds a
   # shared-constraint name list (`[T, U: C]` = one group).
