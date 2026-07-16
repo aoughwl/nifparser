@@ -962,7 +962,13 @@ proc parseTypeDef(ps: var Parser; b: var Builder; nameIdx, typeKwCol: int;
       resultIdx = ps.parseObject(b, rhsIdx + 1, defIndent, r.line, r.col)
       b.endTree()
     else:
-      let hi = ps.lineEnd(rhsIdx)   # section RHS spans the whole (balanced) line
+      var hi = ps.lineEnd(rhsIdx)   # section RHS spans the whole (balanced) line
+      # A multi-line RHS (e.g. a proc type whose return type / pragmas sit on a
+      # deeper-indented continuation line, `proc (…):⏎  RetT {.closure.}`) extends
+      # past this line. Absorb every following line indented deeper than the def so
+      # the continuation isn't re-parsed as a spurious sibling type member.
+      while ps.tok(hi).kind != tkEof and ps.tok(hi).indent > int32(defIndent):
+        hi = ps.lineEnd(hi)
       parseTypeRange(ps, b, int32(rhsIdx), int32(hi), eqTok.line, eqTok.col)
       resultIdx = hi
   else:
