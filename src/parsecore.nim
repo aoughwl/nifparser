@@ -295,10 +295,11 @@ proc findSplit(ps: Parser; lo, hi: int; typeCtx = false): int =
         bestPrec = p
         result = i
     elif depth == 0 and i > lo and i + 1 < hi and typeCtx and
-         t.kind == tkKeyword and (t.s == "ptr" or t.s == "ref") and
-         # `ptr`/`ref` is infix ONLY between operands (`nil ptr uint32`). When its
-         # left neighbour is a binary operator or another `ptr`/`ref`, it is that
-         # operator's right OPERAND, not an infix — e.g. in a type class
+         t.kind == tkKeyword and (t.s == "ptr" or t.s == "ref" or t.s == "not") and
+         # `ptr`/`ref`/`not` is infix ONLY between operands (`nil ptr uint32`, the
+         # nilability constraint `cstring not nil`). When its left neighbour is a
+         # binary operator or another `ptr`/`ref`, it is that operator's right
+         # OPERAND, not an infix — e.g. in a type class
          # `SomeInteger | bool | ptr | pointer` the `|` binds and `ptr` is a bare
          # operand. Guarding on the previous token keeps the `|` chain splitting on
          # `|` (precedence 8) instead of on the `ptr` (precedence 3).
