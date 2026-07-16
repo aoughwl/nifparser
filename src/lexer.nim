@@ -525,6 +525,16 @@ proc lexNumber(lx: var Lexer): Token =
     result.kind = tkIntLit
     result.iVal = decodeIntBase(digits, base)
     result.s = digits
+    # A hex/oct/bin literal with a fixed-width SIGNED suffix carries a two's-
+    # complement value: nifler stores `0xFFFD'i16` as -3 and `0xFFFFFFFF'i32`
+    # as -1, not the raw magnitude. (i64 already wraps into int64 during decode;
+    # decimal literals stay magnitudes.)
+    if base != 10 and (sufl == "i8" or sufl == "i16" or sufl == "i32"):
+      var width = 32
+      if sufl == "i8": width = 8
+      elif sufl == "i16": width = 16
+      if (result.iVal and (1'i64 shl (width - 1))) != 0'i64:
+        result.iVal = result.iVal - (1'i64 shl width)
 
 # ---------------------------------------------------------------------------
 # operators / identifiers

@@ -86,6 +86,21 @@ proc parseTypeRangeImpl(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32) =
       parseTypeRange(ps, b, lo + 1, hi, first.line, first.col)
     b.endTree()
     return
+  # A top-level binary operator (`T | U`, or infix `ptr`/`ref`) splits FIRST —
+  # BEFORE the tuple/object/proc keyword forms — so `tuple | object` is an
+  # `(infix | (tuple) (object))`, not an inline tuple that swallows `| object`.
+  block:
+    let sp0 = ps.findSplit(int(lo), int(hi), typeCtx = true)
+    if sp0 >= 0:
+      let op = ps.tok(sp0)
+      b.addTree "infix"
+      ps.emitInfo(b, op.line, op.col, pl, pc, false)
+      b.addIdent op.s
+      ps.emitInfo(b, op.line, op.col, op.line, op.col, false)
+      parseTypeRange(ps, b, lo, int32(sp0), op.line, op.col)
+      parseTypeRange(ps, b, int32(sp0) + 1, hi, op.line, op.col)
+      b.endTree()
+      return
   # proc / iterator type
   if first.kind == tkKeyword and (first.s == "proc" or first.s == "iterator"):
     parseProcType(ps, b, lo, hi, pl, pc)
@@ -135,18 +150,7 @@ proc parseTypeRangeImpl(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32) =
         parseTypeRange(ps, b, int32(eLo), int32(eHi), first.line, first.col)
     b.endTree()
     return
-  # top-level binary operator (e.g. `T | U`, or `ptr`/`ref` as infix) → infix
-  let sp = ps.findSplit(int(lo), int(hi), typeCtx = true)
-  if sp >= 0:
-    let op = ps.tok(sp)
-    b.addTree "infix"
-    ps.emitInfo(b, op.line, op.col, pl, pc, false)
-    b.addIdent op.s
-    ps.emitInfo(b, op.line, op.col, op.line, op.col, false)
-    parseTypeRange(ps, b, lo, int32(sp), op.line, op.col)
-    parseTypeRange(ps, b, int32(sp) + 1, hi, op.line, op.col)
-    b.endTree()
-    return
+  # (top-level infix `T | U` / `ptr`/`ref` handled above, before the keyword forms)
   # command in type position: `lent string`, `sink T`, `owned Foo` → `(cmd lent
   # string)`. Must precede the postfix `[]`/`.` checks so `sink seq[string]`
   # binds as `sink (seq[string])`, not `(sink seq)[string]` — a leading modifier
