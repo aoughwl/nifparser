@@ -1,6 +1,6 @@
 /bin/
 /nimcache/
 /tests/_work/
-*.p.nif
-*.deps.nif
+*.p.aif
+*.deps.aif
 __pycache__/

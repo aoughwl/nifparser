@@ -1,8 +1,8 @@
-## lexer.nim — full hand-written Nim lexer for nifparser.
+## lexer.nim — full hand-written Nim lexer for aifparser.
 ##
 ## Produces the `Token` stream defined in `tokens.nim`. It is written to match
 ## the classic Nim lexer (`Nim/compiler/lexer.nim`) closely enough that the
-## recursive-descent parser can reproduce native `nifler`'s NIF output.
+## recursive-descent parser can reproduce native `nifler`'s AIF output.
 ##
 ## Coverage
 ## --------
@@ -32,7 +32,7 @@ type
                ## whitespace is reported (non-fatal) on stderr.
 
   NewlinePolicy* = enum
-    ## Asserted end-of-line convention (advisory; never alters NIF).
+    ## Asserted end-of-line convention (advisory; never alters AIF).
     nlAny      ## DEFAULT: accept any line ending (CR is normalised as before).
     nlLf       ## warn on stderr for each line ending that is not bare LF.
     nlCrlf     ## warn on stderr for each line ending that is not CRLF.
@@ -114,7 +114,7 @@ template addDiag(lx: var Lexer; sev: Severity; dcode, dmsg: string;
   if sev == sevError: inc lx.errors
 
 var gLexDiags*: seq[Diagnostic] = @[]
-  ## Diagnostics from the most recent `tokenize` (nifparser is single-shot per
+  ## Diagnostics from the most recent `tokenize` (aifparser is single-shot per
   ## file, so a module accumulator is enough; the CLI reads it after tokenising).
   ## Parser-level checks append here too — see `checkBrackets`.
 
@@ -650,7 +650,7 @@ proc tokenize*(src: string; opts: LexOptions; errors: var int): seq[Token] =
           lx.warnedMixThisLine = true
       advance lx
     elif c == '\n':
-      # Advisory line-ending checks (never alter the NIF). `lx.line` is still the
+      # Advisory line-ending checks (never alter the AIF). `lx.line` is still the
       # number of the line ending here (the '\n' is not yet consumed).
       if lx.opts.newlinePolicy != nlAny or lx.opts.trailingWhitespaceWarn:
         let isCrlf = lx.pos > 0 and lx.src[lx.pos - 1] == '\r'

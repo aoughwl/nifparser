@@ -12,7 +12,7 @@
 ##   That lets the parser implement the off-side rule without a separate
 ##   Indent/Dedent token kind.
 ## * `line` is 1-based, `col` is 0-based — matching nimony's `TLineInfo` so the
-##   NIF line-info the parser emits lines up with native nifler.
+##   AIF line-info the parser emits lines up with native nifler.
 
 type
   TokKind* = enum
@@ -47,9 +47,9 @@ type
     sevError
 
   Diagnostic* = object
-    ## A recoverable parse/lex diagnostic with a source span. nifparser NEVER
+    ## A recoverable parse/lex diagnostic with a source span. aifparser NEVER
     ## aborts on these (unlike nifler, which stops at the first error): it records
-    ## them, keeps parsing, and still emits best-effort NIF — so an editor can show
+    ## them, keeps parsing, and still emits best-effort AIF — so an editor can show
     ## every problem at once. `code` is a short stable slug (e.g. "unknown-byte",
     ## "unclosed-bracket") for filtering; `line`/`col` are 1-based/0-based like a
     ## Token, `endCol` bounds the span on `line` (== col for a point).

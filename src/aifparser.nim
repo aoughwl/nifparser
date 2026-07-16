@@ -1,11 +1,11 @@
-## nifparser — a nimony-native Nim-source parser that emits the SAME NIF as the
+## aifparser — a nimony-native Nim-source parser that emits the SAME AIF as the
 ## classic `nifler`, so it can be compiled to JS (via nim_js) and run in the
 ## browser where classic-Nim `nifler` cannot.
 ##
 ## CLI (mirrors nifler):
-##   nifparser p <in.nim> [out.p.nif]     parse a Nim file, produce a NIF file
+##   aifparser p <in.nim> [out.p.aif]     parse a Nim file, produce a AIF file
 ##
-## When the output path is omitted it defaults to `<in>.p.nif`.
+## When the output path is omitted it defaults to `<in>.p.aif`.
 ##
 ## This driver is intentionally a thin, top-level-init entry point with only
 ## file/stdout I/O so the same code path can later back a globalThis-driven JS
@@ -40,7 +40,7 @@ proc checkBrackets(toks: seq[Token]): seq[Diagnostic] =
   ## mismatched `()`/`[]`/`{}`. A stack of opens is matched against each close;
   ## a wrong or surplus close, and every open left unclosed at EOF, becomes a
   ## `sevError` diagnostic with the offending token's span. Purely a validator —
-  ## it does not affect the emitted NIF (the parser stays best-effort).
+  ## it does not affect the emitted AIF (the parser stays best-effort).
   result = @[]
   var stack: seq[Token] = @[]
   for t in toks:
@@ -115,7 +115,7 @@ proc renderDiags(diags: seq[Diagnostic]; fileField: string; fmt: DiagFormat;
 proc collectDiags(src: string; opts: LexOptions): (seq[Token], seq[Diagnostic]) =
   ## Tokenise and gather ALL diagnostics — the lexer's (unknown bytes, unclosed
   ## strings, style/portability warnings) plus the structural bracket check.
-  ## Recoverable: tokens are returned regardless so the caller can still emit NIF.
+  ## Recoverable: tokens are returned regardless so the caller can still emit AIF.
   var errors = 0
   let toks = tokenize(src, opts, errors)
   var diags = gLexDiags
@@ -124,7 +124,7 @@ proc collectDiags(src: string; opts: LexOptions): (seq[Token], seq[Diagnostic]) 
 
 proc runParse(src, outp, fileField: string; toStdout, strict, curly: bool;
               opts: LexOptions; maxDepth: int; diagFmt: DiagFormat) =
-  ## Tokenize `src`, parse it, and emit the NIF to `outp` (or stdout). Diagnostics
+  ## Tokenize `src`, parse it, and emit the AIF to `outp` (or stdout). Diagnostics
   ## (lexer + bracket check) are rendered to stderr in `diagFmt`; parsing is never
   ## aborted by them. With `strict`, any `sevError` diagnostic exits non-zero.
   let (toks, diags) = collectDiags(src, opts)
@@ -146,12 +146,12 @@ proc runParse(src, outp, fileField: string; toStdout, strict, curly: bool;
     for d in diags:
       if d.severity == sevError: inc nErr
     if nErr > 0:
-      write stderr, "nifparser: " & $nErr & " error(s) in input [--strict]\n"
+      write stderr, "aifparser: " & $nErr & " error(s) in input [--strict]\n"
       quit 1
 
 proc runCheck(src, fileField: string; opts: LexOptions; diagFmt: DiagFormat): int =
-  ## Lint-only mode (`nifparser check`): emit diagnostics to STDOUT (text or json,
-  ## default text) and no NIF. Returns the process exit code — 1 if any error-level
+  ## Lint-only mode (`aifparser check`): emit diagnostics to STDOUT (text or json,
+  ## default text) and no AIF. Returns the process exit code — 1 if any error-level
   ## diagnostic was found, else 0. This is the "better errors than nifler" surface:
   ## recoverable, multi-error, machine-readable, and it never aborts on the first.
   let (_, diags) = collectDiags(src, opts)
@@ -162,9 +162,9 @@ proc runCheck(src, fileField: string; opts: LexOptions; diagFmt: DiagFormat): in
   return 0
 
 proc usage() =
-  write stderr, "nifparser — Nim source -> NIF (nifler-compatible)\n"
-  write stderr, "usage: nifparser [OPTIONS] p <in.nim> [out.p.nif]\n"
-  write stderr, "       nifparser [OPTIONS] check <in.nim>   # lint only: diagnostics, no NIF\n"
+  write stderr, "aifparser — Nim source -> AIF (nifler-compatible)\n"
+  write stderr, "usage: aifparser [OPTIONS] p <in.nim> [out.p.aif]\n"
+  write stderr, "       aifparser [OPTIONS] check <in.nim>   # lint only: diagnostics, no AIF\n"
   write stderr, "  --curly            experimental: also accept `{ … }` block bodies\n"
   write stderr, "  --tabs:MODE        indentation whitespace policy (default spaces):\n"
   write stderr, "                       spaces  spaces only (classic-Nim stance)\n"
@@ -199,7 +199,7 @@ proc usage() =
   write stderr, "  --max-depth:N      abort with non-zero exit if parse nesting exceeds N\n"
   write stderr, "                       (default 0 = unlimited)\n"
   write stderr, "  --stdin            read source from stdin (also: input arg `-`)\n"
-  write stderr, "  --stdout           write NIF to stdout (also: output arg `-`)\n"
+  write stderr, "  --stdout           write AIF to stdout (also: output arg `-`)\n"
   write stderr, "  --filename:PATH    line-info path to record for stdin (default `stdin`)\n"
   write stderr, "  --diagnostics:MODE   how diagnostics are rendered (default text):\n"
   write stderr, "                       text  compiler-style file:line:col lines\n"
@@ -373,7 +373,7 @@ proc main() =
     except:
       write stderr, "cannot read file: " & inputArg & "\n"
       quit 1
-  # `fileField` is the path written into NIF line-info suffixes. nifler's default
+  # `fileField` is the path written into AIF line-info suffixes. nifler's default
   # (portablePaths=true) records the source path RELATIVE to the current working
   # directory with '/' separators — so the output is byte-identical regardless of
   # whether the caller passed a relative or absolute path. We mirror that exactly
@@ -387,7 +387,7 @@ proc main() =
       fileField = relativePath(absolutePath(inputArg), getCurrentDir(), '/')
     except:
       discard   # unresolvable path → keep the arg verbatim
-  # `check` is lint-only: diagnostics to stdout, no NIF, exit 1 on any error.
+  # `check` is lint-only: diagnostics to stdout, no AIF, exit 1 on any error.
   if action == "check":
     quit runCheck(src, fileField, opts, diagFmt)
   # Resolve the output target.
@@ -396,13 +396,13 @@ proc main() =
     if outputArg != "" and outputArg != "-":
       outp = outputArg
       let n = outp.len
-      if n < 4 or outp[n-4 .. n-1] != ".nif":
-        outp = outp & ".nif"
+      if n < 4 or outp[n-4 .. n-1] != ".aif":
+        outp = outp & ".aif"
     elif useStdin:
       # No output path and reading stdin → default to stdout.
       useStdout = true
     else:
-      outp = inputArg & ".p.nif"
+      outp = inputArg & ".p.aif"
   runParse(src, outp, fileField, useStdout, strict, curly, opts, maxDepth, diagFmt)
 
 main()

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""canon.py — canonicalise a NIF token stream for STRUCTURAL comparison.
+"""canon.py — canonicalise a AIF token stream for STRUCTURAL comparison.
 
-Reads NIF text on stdin (or a file arg) and prints one token per line:
+Reads AIF text on stdin (or a file arg) and prints one token per line:
   (            tree open
   <tag>        the tree's tag (line-info / comment suffix stripped)
   <atom>       an atom (ident, symbol, number, `.` empty, ...) suffix-stripped
@@ -10,7 +10,7 @@ Reads NIF text on stdin (or a file arg) and prints one token per line:
 
 Line-info (`@...` / bare `~...`) and comment (`#...#`) suffixes are removed from
 tags and atoms so two parsers that agree on STRUCTURE but differ only in
-line/col diffs compare equal. String-literal contents are never touched (NIF
+line/col diffs compare equal. String-literal contents are never touched (AIF
 escapes all control/marker bytes inside strings, so they cannot be confused
 with a suffix).
 
@@ -116,7 +116,7 @@ def tokenize(text: str):
 def neutralize_vendor(toks):
     """Blank the value of the `(.vendor "…")` header directive.
 
-    nifparser stamps its own vendor identity ("nifparser") where classic nifler
+    aifparser stamps its own vendor identity ("aifparser") where classic nifler
     writes "Nifler". That single header string is the ONE intentional divergence;
     everything else must still match byte-for-byte structurally. We replace only
     the vendor string token with a fixed placeholder so the directive's STRUCTURE
@@ -129,13 +129,22 @@ def neutralize_vendor(toks):
     return out
 
 
+def neutralize_magic(toks):
+    """Normalise the version-magic directive so `(.aif27)` compares equal to the
+    nifler oracle's `(.nif27)`. aifparser's `.aif` wire format is a deliberate
+    rebrand of NIF; the magic token carries that AIF identity but the tree that
+    follows is otherwise identical, so we fold both spellings to one placeholder.
+    """
+    return [".ver" if t in (".aif27", ".nif27") else t for t in toks]
+
+
 def main():
     if len(sys.argv) > 1:
         with open(sys.argv[1], "r", encoding="utf-8", errors="replace") as f:
             text = f.read()
     else:
         text = sys.stdin.read()
-    for t in neutralize_vendor(tokenize(text)):
+    for t in neutralize_magic(neutralize_vendor(tokenize(text))):
         sys.stdout.write(t + "\n")
 
 

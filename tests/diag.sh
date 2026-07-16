@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# diag.sh — smoke test for nifparser's recoverable diagnostics (the `check` mode
+# diag.sh — smoke test for aifparser's recoverable diagnostics (the `check` mode
 # and --diagnostics:json). Unlike nifler (which aborts on the first syntax error),
-# nifparser records every problem with a source span and still produces output.
+# aifparser records every problem with a source span and still produces output.
 #
 # Verifies: (1) a malformed file yields the expected diagnostic CODES and a
 # non-zero exit; (2) --diagnostics:json emits parseable JSON; (3) a valid file is
 # silent with exit 0.
 set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-NP="${NIFPARSER:-$ROOT/bin/nifparser}"
+NP="${NIFPARSER:-$ROOT/bin/aifparser}"
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 fail=0
 

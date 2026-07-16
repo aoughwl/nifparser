@@ -333,7 +333,7 @@ proc parsePrimaryRangeImpl(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32
       return
   # --- generalized call-string-literal (adjacent, no space): a dotted-ident
   # callee immediately followed by a string literal → `(callstrlit <callee>
-  # (suf "str" "R"))`. Handles `re"x"`, `infile.changeExt".nif"`, `a.b.c"x"`.
+  # (suf "str" "R"))`. Handles `re"x"`, `infile.changeExt".aif"`, `a.b.c"x"`.
   # The callee must be a pure symbol/dotted-symbol chain (Nim's rule): a
   # subscript/call ending (`args[1]"x"`) is NOT a raw string call. nifler anchors
   # the `callstrlit` node (and `suf`) at the STRING, with the callee before it. ---

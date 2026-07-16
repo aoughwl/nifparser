@@ -1,4 +1,4 @@
-## parser.nim — recursive-descent parser that emits NIF DIRECTLY via nifbuilder,
+## parser.nim — recursive-descent parser that emits AIF DIRECTLY via nifbuilder,
 ## matching classic `nifler`'s output.
 ##
 ## This module is a THIN aggregator. The grammar is split across include files:
@@ -28,7 +28,19 @@ include parse_type
 include parse_stmt
 
 proc parseModule*(ps: var Parser; b: var Builder) =
-  b.addHeader "nifparser", "nim-parsed"
+  # AIF header. We emit our own `(.aif27)` magic rather than nifbuilder's
+  # `addHeader` (which hardcodes `(.nif27)`): aifparser's wire format is a
+  # deliberate rebrand of NIF, so the magic, vendor, and `.aif` extension all
+  # carry the AIF identity. The body grammar is otherwise identical, so the
+  # differential harness normalises the `(.aif27)`↔`(.nif27)` header line before
+  # comparing against the nifler oracle.
+  b.addRaw "(.aif27)\n"
+  b.addRaw "(.vendor "
+  b.addStrLit "aifparser"
+  b.addRaw ")\n"
+  b.addRaw "(.dialect "
+  b.addStrLit "nim-parsed"
+  b.addRaw ")\n"
   # The module `stmts` node anchors at the FIRST token — nifler's
   # `newNodeP(nkStmtList, p)` takes the current token at parseAll start. A leading
   # `##` doc comment IS that token (our lexer tokenises it and emits `(comment)`,

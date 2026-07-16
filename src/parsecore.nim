@@ -31,7 +31,7 @@ proc enterDepth(ps: var Parser; line: int32) =
   ## once the recursive entry returns. Cheap and inert when maxDepth == 0.
   inc ps.depth
   if ps.maxDepth > 0 and ps.depth > ps.maxDepth:
-    write stderr, "nifparser: parse nesting exceeded --max-depth:" &
+    write stderr, "aifparser: parse nesting exceeded --max-depth:" &
       $ps.maxDepth & " (near line " & $line & ")\n"
     quit 1
 

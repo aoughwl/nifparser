@@ -5,7 +5,7 @@
 ## parsecore.nim); routine bodies call `parseStmt` (forward-declared in
 ## parsecore.nim, implemented in parse_stmt.nim).
 ##
-## Emits NIF matching classic nifler byte-for-byte on supported constructs;
+## Emits AIF matching classic nifler byte-for-byte on supported constructs;
 ## structural (line-info-stripped) equality is the pass criterion.
 
 # --- local forward declarations (mutual recursion inside this file) ----------
