@@ -391,7 +391,7 @@ proc parseCase(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32): int =
   b.endTree()  # case
   result = i
 
-proc emitForVars(ps: Parser; b: var Builder; kwIdx, inIdx: int; firstVar: Token) =
+proc emitForVars(ps: var Parser; b: var Builder; kwIdx, inIdx: int; firstVar: Token) =
   ## Emit a for loop's quantified variables: `(unpacktup (let a …) …)` for a
   ## `(a, b)` pattern, else `(unpackflat (let v …) …)` with a nested `unpacktup`
   ## for any tuple-shaped var (`for i, (a, b) in pairs`). Shared by the statement
@@ -427,7 +427,11 @@ proc emitForVars(ps: Parser; b: var Builder; kwIdx, inIdx: int; firstVar: Token)
         b.addTree "let"
         ps.emitName(b, v, firstVar.line, firstVar.col)   # loop var, or `(quoted …)`
         b.addEmpty      # export marker
-        b.addEmpty      # pragma
+        # a loop var may carry a pragma: `for name {.inject.} in …`
+        if ps.tok(starts[ai] + 1).kind == tkCurlyLe:
+          discard ps.parsePragmas(b, starts[ai] + 1, v.line, v.col)
+        else:
+          b.addEmpty    # pragma
         b.addEmpty 2    # type, value
         b.endTree()
     b.endTree()
