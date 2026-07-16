@@ -357,6 +357,47 @@ proc parseCase(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32): int =
   b.endTree()  # case
   result = i
 
+proc emitForVars(ps: Parser; b: var Builder; kwIdx, inIdx: int; firstVar: Token) =
+  ## Emit a for loop's quantified variables: `(unpacktup (let a …) …)` for a
+  ## `(a, b)` pattern, else `(unpackflat (let v …) …)` with a nested `unpacktup`
+  ## for any tuple-shaped var (`for i, (a, b) in pairs`). Shared by the statement
+  ## and expression for-loop parsers.
+  if firstVar.kind == tkParLe:
+    let rp = ps.matchClose(kwIdx + 1)
+    b.addTree "unpacktup"
+    let starts = ps.splitArgs(kwIdx + 2, rp)
+    for ai in 0 ..< starts.len:
+      let v = ps.tok(starts[ai])
+      b.addTree "let"
+      ps.emitName(b, v, firstVar.line, firstVar.col)   # loop var, or `(quoted …)`
+      b.addEmpty 4   # export, pragma, type, value
+      b.endTree()
+    b.endTree()
+  else:
+    b.addTree "unpackflat"
+    let starts = ps.splitArgs(kwIdx + 1, inIdx)
+    for ai in 0 ..< starts.len:
+      let v = ps.tok(starts[ai])
+      if v.kind == tkParLe:
+        let rp = ps.matchClose(starts[ai])
+        b.addTree "unpacktup"
+        let inner = ps.splitArgs(starts[ai] + 1, rp)
+        for bi in 0 ..< inner.len:
+          let iv = ps.tok(inner[bi])
+          b.addTree "let"
+          ps.emitName(b, iv, firstVar.line, firstVar.col)
+          b.addEmpty 4   # export, pragma, type, value
+          b.endTree()
+        b.endTree()
+      else:
+        b.addTree "let"
+        ps.emitName(b, v, firstVar.line, firstVar.col)   # loop var, or `(quoted …)`
+        b.addEmpty      # export marker
+        b.addEmpty      # pragma
+        b.addEmpty 2    # type, value
+        b.endTree()
+    b.endTree()
+
 proc parseFor(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32): int =
   let kw = ps.tok(kwIdx)
   let refIndent = kw.col
@@ -381,47 +422,39 @@ proc parseFor(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32): int =
   ps.emitInfo(b, firstVar.line, firstVar.col, pl, pc, false)
   # iterator FIRST (parent = for node)
   ps.parseExprRange(b, int32(inIdx + 1), int32(colon), firstVar.line, firstVar.col)
-  if firstVar.kind == tkParLe:
-    # tuple unpacking: `(a, b)` → (unpacktup (let a . . . .) …)  (addEmpty 4)
-    let rp = ps.matchClose(kwIdx + 1)
-    b.addTree "unpacktup"
-    let starts = ps.splitArgs(kwIdx + 2, rp)
-    for ai in 0 ..< starts.len:
-      let v = ps.tok(starts[ai])
-      b.addTree "let"
-      ps.emitName(b, v, firstVar.line, firstVar.col)   # loop var, or `(quoted …)`
-      b.addEmpty 4   # export, pragma, type, value
-      b.endTree()
-    b.endTree()
-  else:
-    # flat: one `(let name . . . .)` per loop var, but a loop var that is itself a
-    # `(a, b)` tuple becomes a nested `(unpacktup (let a …) …)` — e.g. the mixed
-    # `for i, (a, b) in pairs`.
-    b.addTree "unpackflat"
-    let starts = ps.splitArgs(kwIdx + 1, inIdx)
-    for ai in 0 ..< starts.len:
-      let v = ps.tok(starts[ai])
-      if v.kind == tkParLe:
-        let rp = ps.matchClose(starts[ai])
-        b.addTree "unpacktup"
-        let inner = ps.splitArgs(starts[ai] + 1, rp)
-        for bi in 0 ..< inner.len:
-          let iv = ps.tok(inner[bi])
-          b.addTree "let"
-          ps.emitName(b, iv, firstVar.line, firstVar.col)
-          b.addEmpty 4   # export, pragma, type, value
-          b.endTree()
-        b.endTree()
-      else:
-        b.addTree "let"
-        ps.emitName(b, v, firstVar.line, firstVar.col)   # loop var, or `(quoted …)`
-        b.addEmpty      # export marker
-        b.addEmpty      # pragma
-        b.addEmpty 2    # type, value
-        b.endTree()
-    b.endTree()
+  ps.emitForVars(b, kwIdx, inIdx, firstVar)
   # body LAST (parent = for node)
   result = ps.emitBody(b, colon, refIndent, firstVar.line, firstVar.col)
+  b.endTree()
+
+proc parseForExpr(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32) =
+  ## `for vars in iter: body` in EXPRESSION position — a parenthesised for loop
+  ## `(for _ in items(iter): discard)` (seen inside `compiles(...)`). Bounded by
+  ## `hi` (the `)`), with a BARE body (no `(stmts …)` wrapper), mirroring the
+  ## bodies of the other bare paren control-flow forms.
+  let kwIdx = int(lo)
+  let colon = ps.findColon(kwIdx, int(hi))
+  var inIdx = -1
+  block:
+    var depth = 0
+    var j = kwIdx + 1
+    while j < colon:
+      let t = ps.tok(j)
+      if isOpenBracket(t.kind): inc depth
+      elif isCloseBracket(t.kind):
+        if depth > 0: dec depth
+      elif depth == 0 and t.kind == tkKeyword and t.s == "in":
+        inIdx = j; break
+      inc j
+  let firstVar = ps.tok(kwIdx + 1)
+  b.addTree "for"
+  ps.emitInfo(b, firstVar.line, firstVar.col, pl, pc, false)
+  ps.parseExprRange(b, int32(inIdx + 1), int32(colon), firstVar.line, firstVar.col)
+  ps.emitForVars(b, kwIdx, inIdx, firstVar)
+  var sj = colon + 1
+  while sj < int(hi) and ps.tok(sj).kind != tkEof:
+    sj = ps.parseStmt(b, sj, firstVar.line, firstVar.col, int(hi))
+    if sj < int(hi) and ps.tok(sj).kind == tkSemicolon: inc sj
   b.endTree()
 
 proc parseTryExpr(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32) =

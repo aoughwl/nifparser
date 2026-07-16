@@ -373,6 +373,7 @@ proc splitPragmaItems(ps: Parser; lo, hi: int): seq[int] =
 proc parseExprRange(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32)
 proc parsePrimaryRange(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32)
 proc parseCaseExpr(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32)
+proc parseForExpr(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32)
 # parse_stmt.nim implements:
 proc parseStmt(ps: var Parser; b: var Builder; startIdx: int; pl, pc: int32;
                hiLimit: int): int

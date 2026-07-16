@@ -589,9 +589,13 @@ proc parsePrimaryRangeImpl(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32
         ps.parseIfExpr(b, int32(segLo), int32(rpIdx), t.line, t.col, true, "when")
       elif rt.kind == tkKeyword and rt.s == "case":
         ps.parseCaseExpr(b, int32(segLo), int32(rpIdx), t.line, t.col)
+      elif rt.kind == tkKeyword and rt.s == "for":
+        ps.parseForExpr(b, int32(segLo), int32(rpIdx), t.line, t.col)
       elif rt.kind == tkKeyword and rt.s == "block":
-        # `(block: s1; s2; …)` as an expression → `(block <label> (stmts …))`,
-        # its `;`-separated body bounded by the paren (not the physical line).
+        # `(block: body)` as an expression → `(block <label> body)`. A body of a
+        # SINGLE statement is BARE (`typeof((block: init))` = `(block . init)`),
+        # like the other paren-StmtListExpr control-flow results; a MULTI-statement
+        # body keeps the `(stmts …)` wrapper (`(block: a; b; c)`).
         let bcolon = ps.findColon(segLo, rpIdx)
         b.addTree "block"
         ps.emitInfo(b, rt.line, rt.col, t.line, t.col, false)
@@ -600,13 +604,33 @@ proc parsePrimaryRangeImpl(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32
         else:
           b.addEmpty
         let first = ps.tok(bcolon + 1)
-        b.addTree "stmts"
-        ps.emitInfo(b, first.line, first.col, rt.line, rt.col, false)
+        # count body statements: depth-0 `;` or a non-continuing line break.
+        var nStmts = if bcolon + 1 < rpIdx: 1 else: 0
+        block:
+          var depth = 0
+          var k = bcolon + 1
+          while k < rpIdx:
+            let tk = ps.tok(k)
+            if isOpenBracket(tk.kind): inc depth
+            elif isCloseBracket(tk.kind):
+              if depth > 0: dec depth
+            elif depth == 0 and k > bcolon + 1:
+              let pv = ps.tok(k - 1)
+              if tk.kind == tkSemicolon:
+                if k + 1 < rpIdx: inc nStmts
+              elif pv.kind != tkSemicolon and tk.line != pv.line and
+                   not continuesLine(pv):
+                inc nStmts
+            inc k
+        let wrap = nStmts > 1
+        if wrap:
+          b.addTree "stmts"
+          ps.emitInfo(b, first.line, first.col, rt.line, rt.col, false)
         var sj = bcolon + 1
         while sj < rpIdx and ps.tok(sj).kind != tkEof:
           sj = ps.parseStmt(b, sj, first.line, first.col, rpIdx)
           if sj < rpIdx and ps.tok(sj).kind == tkSemicolon: inc sj
-        b.endTree()   # stmts
+        if wrap: b.endTree()   # stmts
         b.endTree()   # block
       else:
         ps.parseExprRange(b, int32(segLo), int32(rpIdx), t.line, t.col)
