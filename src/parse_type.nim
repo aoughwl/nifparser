@@ -797,6 +797,13 @@ proc parseTypeDef(ps: var Parser; b: var Builder; nameIdx, typeKwCol: int;
   if i < ps.toks.len and ps.tok(i).kind == tkBracketLe:
     genIdx = i
     i = ps.matchClose(i) + 1
+  # a pragma AFTER the generics (`Name*[T] {.magic.}`): splitFieldName only sees a
+  # pragma directly after the name (before `[T]`), so capture a post-generics one.
+  if pragLo < 0 and i < ps.toks.len and ps.tok(i).kind == tkCurlyLe and
+     i + 1 < ps.toks.len and ps.tok(i + 1).kind == tkDot:
+    pragLo = i
+    pragHi = ps.matchClose(i) + 1
+    i = pragHi
   # the `=`
   var eqIdx = -1
   block:
