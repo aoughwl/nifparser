@@ -511,11 +511,35 @@ proc parsePrimaryRangeImpl(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32
       b.endTree()
     of pkAt:
       let rp = ps.matchClose(k)
-      b.addTree "at"
-      ps.emitInfo(b, opTok.line, opTok.col, pl, pc, false)   # at node = '[' pos
-      ps.parsePrimaryRange(b, lo, int32(k), opTok.line, opTok.col)
-      ps.parseArgList(b, int32(k + 1), int32(rp), opTok.line, opTok.col)
-      b.endTree()
+      # `base[:T, …]` (leading colon) is an explicit GENERIC instantiation, not an
+      # index. For a UFCS receiver `recv.method[:T]` nifler folds it into a call:
+      # `(call (at method T) recv)`. Bare `method[:T]` → `(at method T)`.
+      if k + 1 < rp and ps.tok(k + 1).kind == tkColon:
+        var dk = 0
+        let dotK = ps.findPostfix(int(lo), k, dk)
+        if dk == pkDot:
+          let methodTok = ps.tok(dotK + 1)
+          b.addTree "call"
+          ps.emitInfo(b, opTok.line, opTok.col, pl, pc, false)
+          b.addTree "at"
+          ps.emitInfo(b, opTok.line, opTok.col, opTok.line, opTok.col, false)
+          ps.emitName(b, methodTok, opTok.line, opTok.col)
+          ps.parseArgList(b, int32(k + 2), int32(rp), opTok.line, opTok.col)  # type args
+          b.endTree()   # at
+          ps.parsePrimaryRange(b, lo, int32(dotK), opTok.line, opTok.col)     # receiver
+          b.endTree()   # call
+        else:
+          b.addTree "at"
+          ps.emitInfo(b, opTok.line, opTok.col, pl, pc, false)
+          ps.parsePrimaryRange(b, lo, int32(k), opTok.line, opTok.col)
+          ps.parseArgList(b, int32(k + 2), int32(rp), opTok.line, opTok.col)  # type args
+          b.endTree()
+      else:
+        b.addTree "at"
+        ps.emitInfo(b, opTok.line, opTok.col, pl, pc, false)   # at node = '[' pos
+        ps.parsePrimaryRange(b, lo, int32(k), opTok.line, opTok.col)
+        ps.parseArgList(b, int32(k + 1), int32(rp), opTok.line, opTok.col)
+        b.endTree()
     of pkCurly:
       let rp = ps.matchClose(k)
       b.addTree "curlyat"
