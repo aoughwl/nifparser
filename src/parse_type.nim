@@ -41,7 +41,9 @@ proc typeExprEnd(ps: var Parser; lo: int): int =
   ## default that follows is dropped.
   let procType = ps.tok(lo).kind == tkKeyword and
                  (ps.tok(lo).s == "proc" or ps.tok(lo).s == "iterator")
-  var retPending = false          # proc param parens closed; the next `:` is the return
+  var retPending = procType and ps.tok(lo + 1).kind == tkColon
+                                  # a param-LESS `iterator: T` / `proc: T`: the very
+                                  # next `:` is already the return colon
   var inProcReturn = false        # past the proc return `:`, scanning its type — which
                                   # may wrap onto a continuation line inside the param
                                   # parens (`cb: proc(r): \n  Future[void]`).
@@ -375,6 +377,19 @@ proc parseProcType(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32) =
     b.addEmpty 4                                           # name export pattern generics
     b.addEmpty                                             # params slot (no return)
     discard ps.parsePragmas(b, int(lo) + 1, kw.line, kw.col)
+    b.addEmpty 2                                           # exceptions, body
+  elif int(lo) + 1 < int(hi) and ps.tok(int(lo) + 1).kind == tkColon:
+    # a param-less `proc`/`iterator` type WITH a return: `iterator: T` →
+    # `(itertype .... (params) T . ..)` — 4 empties, an EMPTY (params) node, the
+    # return type, then pragmas + exceptions + body.
+    ps.emitInfo(b, kw.line, kw.col, pl, pc, false)
+    b.addEmpty 4                                           # name export pattern generics
+    b.addTree "params"; ps.emitInfo(b, kw.line, kw.col, kw.line, kw.col, false); b.endTree()
+    var i = ps.parseType(b, int(lo) + 2, kw.line, kw.col)  # return type
+    if ps.tok(i).kind == tkCurlyLe:
+      i = ps.parsePragmas(b, i, kw.line, kw.col)
+    else:
+      b.addEmpty                                           # pragmas
     b.addEmpty 2                                           # exceptions, body
   else:
     # a BARE `proc`/`iterator` type (`(proc)`, no params) → `(proctype)` with no
