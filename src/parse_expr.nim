@@ -788,9 +788,23 @@ proc parseExprRangeImpl(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32) =
   # Keyword-led expression forms must NOT be split by the operator scanner
   # (their conditions/bodies contain operators that are not top-level).
   let head = ps.tok(int(lo))
+  # A `proc`/`func`/`iterator` head is a routine literal/type ONLY when a routine
+  # signature follows (`(`/`[`/`{`/`:`/`=`, or it is the whole range: `(proc)`).
+  # A BARE `proc`/`iterator` operand in a type union (`proc | iterator | NimNode`)
+  # is followed by a binary operator — there the `|` is top-level and must split,
+  # so do NOT shortcut past the operator scanner.
+  let procHead = head.kind == tkKeyword and
+                 (head.s == "proc" or head.s == "func" or head.s == "iterator")
+  let procIsRoutine =
+    if not procHead: false
+    elif int(lo) + 1 >= int(hi): true
+    else:
+      let nx = ps.tok(int(lo) + 1)
+      nx.kind == tkParLe or nx.kind == tkBracketLe or nx.kind == tkCurlyLe or
+      nx.kind == tkColon or nx.kind == tkIdent or
+      (nx.kind == tkOperator and nx.s == "=")
   if head.kind == tkKeyword and (head.s == "if" or head.s == "when" or
-     head.s == "try" or head.s == "proc" or head.s == "func" or
-     head.s == "iterator"):
+     head.s == "try" or procIsRoutine):
     ps.parsePrimaryRange(b, lo, hi, pl, pc)
     return
   # A command call whose callee starts at `lo` binds LOOSER than binary operators
