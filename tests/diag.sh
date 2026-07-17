@@ -170,6 +170,29 @@ printf 'echo 1 #[ closed ]# more\n' > "$WORK/lx.nim"
 grep -q 'unterminated-comment' <<<"$("$NP" check "$WORK/lx.nim" 2>&1)" && {
   echo "FAIL: a properly-closed block comment must be silent"; fail=1; }
 
+# (4k) more classic lexer errors nifler catches: malformed escapes and
+# unterminated triple/raw strings. Fire on the bad form, silent on the valid one.
+declare -A badstr=(
+  ['let s = "a\qb"']=invalid-escape-sequence
+  ['let s = "\x"']=invalid-escape-sequence
+  ['let s = "\u{}"']=invalid-unicode-escape
+  ['let s = """abc']=unterminated-string
+  ['let s = r"abc']=unterminated-string
+  ['let x = 1__0']=invalid-number
+  ['let x = 1_']=invalid-number )
+for src in "${!badstr[@]}"; do
+  printf '%s\n' "$src" > "$WORK/ls.nim"
+  grep -q "${badstr[$src]}" <<<"$("$NP" check "$WORK/ls.nim" 2>&1)" || {
+    echo "FAIL: '$src' should report ${badstr[$src]}"; fail=1; }
+done
+for ok in 'let s = "a\nb\t\\x41é"' 'let s = "\x1B"' 'let s = "\u{1F600}"' \
+          'let s = """closed"""' 'let s = r"closed"' 'let x = 1_000_000' 'let h = 0xFF_FF'; do
+  printf '%s\n' "$ok" > "$WORK/ls.nim"
+  grep -qE 'invalid-escape-sequence|invalid-unicode-escape|unterminated-string|invalid-number' \
+    <<<"$("$NP" check "$WORK/ls.nim" 2>&1)" && {
+    echo "FAIL: valid literal '$ok' must be silent"; fail=1; }
+done
+
 # (5) diagnostics are emitted in SOURCE ORDER (top-to-bottom), not validator order.
 printf 'let a = (1\nvar b = {2\n' > "$WORK/ord.nim"
 lines="$("$NP" check "$WORK/ord.nim" 2>&1)"

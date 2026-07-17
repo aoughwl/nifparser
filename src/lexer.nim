@@ -258,17 +258,25 @@ proc decodeEscape(lx: var Lexer; s: var string) =
       xi = (xi shl 4) or hexVal(lx.cur)
       advance lx
       inc k
+    if k == 0:
+      lx.addDiag(sevError, "invalid-escape-sequence",
+                 "expected a hex digit after '\\x'", lx.line, lx.col, lx.col)
     s.add chr(xi and 0xFF)
   of 'u', 'U':
     advance lx
     var xi = 0
     if lx.cur == '{':
       advance lx
+      var udigits = 0
       while lx.cur != '}' and lx.pos < lx.n:
         if isHexDigit(lx.cur):
           xi = (xi shl 4) or hexVal(lx.cur)
+          inc udigits
         advance lx
       if lx.cur == '}': advance lx
+      if udigits == 0:
+        lx.addDiag(sevError, "invalid-unicode-escape",
+                   "unicode codepoint cannot be empty", lx.line, lx.col, lx.col)
     else:
       var k = 0
       while k < 4 and isHexDigit(lx.cur):
@@ -283,8 +291,11 @@ proc decodeEscape(lx: var Lexer; s: var string) =
       advance lx
     s.add chr(xi and 0xFF)
   else:
-    # invalid escape — pass the char through verbatim
+    # invalid escape — nifler rejects it ("invalid character constant"). We still
+    # pass the char through verbatim so the emitted AIF is unchanged.
     if lx.pos < lx.n:
+      lx.addDiag(sevError, "invalid-escape-sequence",
+                 "invalid character escape '\\" & c & "'", lx.line, lx.col, lx.col)
       s.add c
       advance lx
 
@@ -311,10 +322,12 @@ proc lexTripleString(lx: var Lexer; raw: bool): Token =
   elif lx.cur == '\n':
     advance lx
   var s = ""
+  var closed = false
   while lx.pos < lx.n:
     if lx.cur == '"' and lx.peek(1) == '"' and lx.peek(2) == '"' and
        lx.peek(3) != '"':
       advance lx; advance lx; advance lx
+      closed = true
       break
     elif lx.cur == '\r':
       advance lx
@@ -326,6 +339,10 @@ proc lexTripleString(lx: var Lexer; raw: bool): Token =
     else:
       s.add lx.cur
       advance lx
+  if not closed:
+    lx.addDiag(sevError, "unterminated-string",
+               "closing \"\"\" expected, but end of file reached",
+               result.line, result.col, lx.col)
   result.s = s
 
 proc lexRawString(lx: var Lexer): Token =
@@ -333,6 +350,7 @@ proc lexRawString(lx: var Lexer): Token =
   result = startToken(lx, tkRStrLit)
   advance lx # opening quote
   var s = ""
+  var closed = false
   while lx.pos < lx.n and lx.cur != '\n':
     if lx.cur == '"':
       if lx.peek(1) == '"':
@@ -340,10 +358,14 @@ proc lexRawString(lx: var Lexer): Token =
         advance lx; advance lx
       else:
         advance lx
+        closed = true
         break
     else:
       s.add lx.cur
       advance lx
+  if not closed:
+    lx.addDiag(sevError, "unterminated-string", "closing \" expected",
+               result.line, result.col, lx.col)
   result.s = s
 
 proc lexString(lx: var Lexer): Token =
@@ -526,6 +548,20 @@ proc lexNumber(lx: var Lexer): Token =
   # raw numeric source text (with base prefix, without the `'suffix`), needed to
   # reproduce a CUSTOM numeric literal (`0xff'big` → `(dot (suf "0xff" "R") 'big)`).
   let rawText = lx.src[numStart ..< lx.pos]
+
+  # Underscores may only sit BETWEEN digits — a doubled `__` or a trailing `_`
+  # is malformed (nifler: "only single underscores may occur…and may not end
+  # with an underscore"). Both are unambiguous, so flagging them is zero-FP.
+  if rawText.len > 0:
+    var badUnderscore = rawText[rawText.len - 1] == '_'
+    var i = 1
+    while i < rawText.len:
+      if rawText[i] == '_' and rawText[i-1] == '_': badUnderscore = true
+      inc i
+    if badUnderscore:
+      lx.addDiag(sevError, "invalid-number",
+                 "only single underscores may occur in a number, and it may not " &
+                 "end with an underscore", result.line, result.col, lx.col)
 
   # ---- type suffix -------------------------------------------------------
   var suffix = ""
