@@ -61,8 +61,11 @@ proc checkBrackets(toks: seq[Token]): seq[Diagnostic] =
         let top = stack[stack.len - 1]
         result.add Diagnostic(severity: sevError, code: "mismatched-bracket",
           message: "'" & closerFor(t.kind) & "' does not match '" &
-                   openerFor(top.kind) & "' opened at " & $top.line & ":" & $top.col,
-          line: t.line, col: t.col, endCol: t.col + 1)
+                   openerFor(top.kind) & "'",
+          line: t.line, col: t.col, endCol: t.col + 1,
+          fix: "change it to '" & closerFor(top.kind) & "' or fix the opener",
+          relMsg: "'" & openerFor(top.kind) & "' opened here",
+          relLine: top.line, relCol: top.col)
         stack.setLen(stack.len - 1)
       else:
         stack.setLen(stack.len - 1)
@@ -70,7 +73,8 @@ proc checkBrackets(toks: seq[Token]): seq[Diagnostic] =
   for t in stack:
     result.add Diagnostic(severity: sevError, code: "unclosed-bracket",
       message: "unclosed '" & openerFor(t.kind) & "'",
-      line: t.line, col: t.col, endCol: t.col + 1)
+      line: t.line, col: t.col, endCol: t.col + 1,
+      fix: "add a matching '" & closerFor(t.kind) & "'")
 
 proc checkGrammar(toks: seq[Token]): seq[Diagnostic] =
   ## Grammar-level errors the range-splitter silently copes with but nifler

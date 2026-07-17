@@ -60,8 +60,11 @@ printf 'proc f(x: var ptr int) = discard\n' > "$WORK/i.nim"
 # (4c) the reported bracket CHARACTER must be the real one (closerFor once
 # printed '}' for every close because it only matched the OPEN token kinds).
 printf 'let a = (1 + 2]\n' > "$WORK/c.nim"
-grep -q "']' does not match '('" <<<"$("$NP" check "$WORK/c.nim" 2>&1)" || {
+cout="$("$NP" check "$WORK/c.nim" 2>&1)"
+grep -q "']' does not match '('" <<<"$cout" || {
   echo "FAIL: mismatched-bracket must name the actual brackets"; fail=1; }
+grep -q "'(' opened here" <<<"$cout" || {
+  echo "FAIL: mismatched-bracket must carry a related 'opened here' note"; fail=1; }
 printf 'x)\n' > "$WORK/c.nim"
 grep -q "unmatched ')'" <<<"$("$NP" check "$WORK/c.nim" 2>&1)" || {
   echo "FAIL: unmatched-close must name the actual bracket"; fail=1; }

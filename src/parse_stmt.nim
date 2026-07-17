@@ -515,7 +515,15 @@ proc parseFor(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32): int =
   b.addTree "for"
   ps.emitInfo(b, firstVar.line, firstVar.col, pl, pc, false)
   # iterator FIRST (parent = for node)
-  ps.parseExprRange(b, int32(inIdx + 1), int32(colon), firstVar.line, firstVar.col)
+  if inIdx < 0:
+    # `for x: body` with no `in` — nifler errors ("expected 'in'"). `inIdx + 1`
+    # would be token 0 and the iterator would be read from the start of the file,
+    # so emit an empty iterator and report instead.
+    ps.perr("expected-in", "expected 'in' in the 'for' header", kw,
+            fix = "write 'for <vars> in <iterable>: …'")
+    b.addEmpty
+  else:
+    ps.parseExprRange(b, int32(inIdx + 1), int32(colon), firstVar.line, firstVar.col)
   ps.emitForVars(b, kwIdx, inIdx, firstVar)
   # body LAST (parent = for node)
   result = ps.emitBody(b, colon, refIndent, firstVar.line, firstVar.col)
