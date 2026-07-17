@@ -19,15 +19,20 @@ type
   DiagFormat = enum dfText, dfJson, dfOff
 
 proc closerFor(k: TokKind): char =
+  ## The `)`/`]`/`}` character for a bracket kind. Accepts BOTH the open and the
+  ## close kind: checkBrackets reports on the offending CLOSE token, so leaving
+  ## `tkParRi`/`tkBracketRi` out of the match made every mismatched close print
+  ## as `}` regardless of what it actually was.
   case k
-  of tkParLe: ')'
-  of tkBracketLe: ']'
+  of tkParLe, tkParRi: ')'
+  of tkBracketLe, tkBracketRi: ']'
   else: '}'
 
 proc openerFor(k: TokKind): char =
+  ## The `(`/`[`/`{` character for a bracket kind (either open or close kind).
   case k
-  of tkParLe: '('
-  of tkBracketLe: '['
+  of tkParLe, tkParRi: '('
+  of tkBracketLe, tkBracketRi: '['
   else: '{'
 
 proc matchesClose(open, close: TokKind): bool =
@@ -73,6 +78,31 @@ proc checkGrammar(toks: seq[Token]): seq[Diagnostic] =
   ## every case here is UNAMBIGUOUSLY malformed (zero false positives on valid
   ## Nim), so `check` can flag it the way a real front end would.
   result = @[]
+  # `let`/`const` ALWAYS introduce a declaration, so the next significant token
+  # must begin a name: an identifier, or `(` for a tuple unpack. Anything else —
+  # a keyword (`let proc`), an operator, a literal, a closing bracket, EOF — is
+  # what nifler reports as "identifier expected, but got 'X'".
+  # (`var`/`type` are deliberately NOT checked: they double as TYPE modifiers, so
+  # `x: var ptr int` legitimately puts a keyword right after them.)
+  for i in 0 ..< toks.len:
+    let k = toks[i]
+    if k.kind != tkKeyword or (k.s != "let" and k.s != "const"): continue
+    # next significant token
+    var j = i + 1
+    while j < toks.len and toks[j].kind == tkComment: inc j
+    if j >= toks.len: continue
+    let nx = toks[j]
+    let namey = nx.kind == tkIdent or nx.kind == tkParLe
+    if not namey and nx.kind != tkEof:
+      result.add Diagnostic(severity: sevError, code: "identifier-expected",
+        message: "identifier expected after '" & k.s & "', but got '" &
+                 (if nx.kind == tkKeyword: "keyword " & nx.s
+                  elif nx.s.len > 0: nx.s else: "token") & "'",
+        line: nx.line, col: nx.col, endCol: nx.endCol)
+    elif nx.kind == tkEof:
+      result.add Diagnostic(severity: sevError, code: "identifier-expected",
+        message: "identifier expected after '" & k.s & "'",
+        line: k.line, col: k.col, endCol: k.endCol)
   # last significant (non-comment) token
   var last = -1
   for i in countdown(toks.len - 1, 0):

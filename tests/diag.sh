@@ -47,6 +47,25 @@ for tail in 'let x = 1 +' 'let y = a and' 'foo(a,'; do
     echo "FAIL: '$tail' should report expression-expected; got: $out"; fail=1; }
 done
 
+# (4b) `let`/`const` always declare, so a non-name after them is identifier-expected.
+for bad in 'let proc' 'const if' 'let'; do
+  printf '%s\n' "$bad" > "$WORK/i.nim"
+  grep -q 'identifier-expected' <<<"$("$NP" check "$WORK/i.nim" 2>&1)" || {
+    echo "FAIL: '$bad' should report identifier-expected"; fail=1; }
+done
+# ...but `var`/`type` double as TYPE modifiers, so a keyword after them is fine.
+printf 'proc f(x: var ptr int) = discard\n' > "$WORK/i.nim"
+[ -z "$("$NP" check "$WORK/i.nim" 2>&1)" ] || { echo "FAIL: 'var ptr int' is valid"; fail=1; }
+
+# (4c) the reported bracket CHARACTER must be the real one (closerFor once
+# printed '}' for every close because it only matched the OPEN token kinds).
+printf 'let a = (1 + 2]\n' > "$WORK/c.nim"
+grep -q "']' does not match '('" <<<"$("$NP" check "$WORK/c.nim" 2>&1)" || {
+  echo "FAIL: mismatched-bracket must name the actual brackets"; fail=1; }
+printf 'x)\n' > "$WORK/c.nim"
+grep -q "unmatched ')'" <<<"$("$NP" check "$WORK/c.nim" 2>&1)" || {
+  echo "FAIL: unmatched-close must name the actual bracket"; fail=1; }
+
 # (5) diagnostics are emitted in SOURCE ORDER (top-to-bottom), not validator order.
 printf 'let a = (1\nvar b = {2\n' > "$WORK/ord.nim"
 lines="$("$NP" check "$WORK/ord.nim" 2>&1)"
