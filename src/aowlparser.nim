@@ -116,6 +116,14 @@ proc checkGrammar(toks: seq[Token]): seq[Diagnostic] =
     let k = toks[i]
     if k.kind != tkKeyword or (k.s != "if" and k.s != "elif" and
                                k.s != "while" and k.s != "when"): continue
+    # EMPTY condition: the keyword is immediately followed by its `:` (`elif:`,
+    # `if:`, `while:`). A condition is always required, so this is unambiguous.
+    if i + 1 < toks.len and toks[i+1].kind == tkColon:
+      result.add Diagnostic(severity: sevError, code: "expected-condition",
+        message: "'" & k.s & "' requires a condition before ':'",
+        line: k.line, col: k.col, endCol: k.endCol,
+        fix: "add a condition, e.g. '" & k.s & " cond:'")
+      continue
     # scan the condition: from after the keyword to the depth-0 `:` (or line end).
     var depth = 0
     var j = i + 1

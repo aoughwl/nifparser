@@ -119,6 +119,13 @@ for ok in 'let x = 1_000_000' 'let h = 0xFF_FF' 'var my_var = 1' 'let _ = f()' '
   [ -z "$("$NP" check "$WORK/nn.nim" 2>&1)" ] || { echo "FAIL: '$ok' must be silent"; fail=1; }
 done
 
+# (4h) empty condition: 'if'/'elif'/'while'/'when' immediately followed by ':'.
+for src in 'elif:' 'if:' 'while:'; do
+  printf '%s\n  discard\n' "$src" > "$WORK/ec.nim"
+  grep -q 'expected-condition' <<<"$("$NP" check "$WORK/ec.nim" 2>&1)" || {
+    echo "FAIL: '$src' should report expected-condition"; fail=1; }
+done
+
 # (5) diagnostics are emitted in SOURCE ORDER (top-to-bottom), not validator order.
 printf 'let a = (1\nvar b = {2\n' > "$WORK/ord.nim"
 lines="$("$NP" check "$WORK/ord.nim" 2>&1)"
