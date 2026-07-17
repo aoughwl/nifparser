@@ -181,6 +181,13 @@ proc parseTypeRangeImpl(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32) =
       parseTypeRange(ps, b, int32(elems0[0]), int32(rb), first.line, first.col)
       b.endTree()
       return
+    # An EMPTY `()` in type position is `(par)`, not an empty tuple — e.g. the
+    # parameter list of a `->` proc-type sugar (`() -> string`) or a bare `()`.
+    if int(lo) + 1 == rb:
+      b.addTree "par"
+      ps.emitInfo(b, first.line, first.col, pl, pc, false)
+      b.endTree()
+      return
     b.addTree "tup"
     ps.emitInfo(b, first.line, first.col, pl, pc, false)
     let elems = ps.splitArgs(int(lo) + 1, rb)
