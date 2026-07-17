@@ -167,7 +167,15 @@ proc parseTypeRangeImpl(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32) =
       b.endTree()
       return
     let elems0 = ps.splitArgs(int(lo) + 1, rb)
-    if elems0.len == 1 and elems0[0] < rb and ps.depth0Colon(elems0[0], rb) < 0:
+    # A single grouped element wrapped in parens is `(par x)`, not a tuple. This
+    # includes a parenthesized PROC/ITERATOR type (`(proc(s: string): int)` as a
+    # return type): its `:` is the routine's return colon, NOT a `field: T` tuple
+    # separator, so the depth-0-colon test alone would wrongly route it to `tup`.
+    let inner0 = if elems0.len == 1: ps.tok(elems0[0]) else: first
+    let inner0Proc = inner0.kind == tkKeyword and
+                     (inner0.s == "proc" or inner0.s == "iterator")
+    if elems0.len == 1 and elems0[0] < rb and
+       (ps.depth0Colon(elems0[0], rb) < 0 or inner0Proc):
       b.addTree "par"
       ps.emitInfo(b, first.line, first.col, pl, pc, false)
       parseTypeRange(ps, b, int32(elems0[0]), int32(rb), first.line, first.col)
