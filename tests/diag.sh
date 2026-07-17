@@ -90,6 +90,19 @@ grep -q 'help: ' <<<"$("$NP" check "$WORK/gc.nim" 2>&1)" || {
 grep -q '"fix":' <<<"$("$NP" check --diagnostics:json "$WORK/gc.nim" 2>&1)" || {
   echo "FAIL: json should carry a \"fix\" field"; fail=1; }
 
+# (4f) assignment '=' in a condition — the classic '==' typo. A depth-0 '=' in an
+# if/elif/while/when condition is always malformed; we catch it with a better
+# message than the classic parser AND must not fire on named args / comparisons.
+printf 'if x = 5:\n  discard\n' > "$WORK/ac.nim"
+out="$("$NP" check "$WORK/ac.nim" 2>&1)"
+grep -q 'assignment-in-condition' <<<"$out" || { echo "FAIL: 'if x = 5:' should flag assignment-in-condition"; fail=1; }
+grep -q "==" <<<"$out" || { echo "FAIL: assignment-in-condition should suggest '=='"; fail=1; }
+for ok in 'if x == 5:' 'if f(k = v):' 'when compiles(x = 5):'; do
+  printf '%s\n  discard\n' "$ok" > "$WORK/ac.nim"
+  grep -q 'assignment-in-condition' <<<"$("$NP" check "$WORK/ac.nim" 2>&1)" && {
+    echo "FAIL: '$ok' must NOT flag assignment-in-condition"; fail=1; }
+done
+
 # (5) diagnostics are emitted in SOURCE ORDER (top-to-bottom), not validator order.
 printf 'let a = (1\nvar b = {2\n' > "$WORK/ord.nim"
 lines="$("$NP" check "$WORK/ord.nim" 2>&1)"

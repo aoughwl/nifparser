@@ -107,6 +107,34 @@ proc checkGrammar(toks: seq[Token]): seq[Diagnostic] =
       result.add Diagnostic(severity: sevError, code: "identifier-expected",
         message: "identifier expected after '" & k.s & "'",
         line: k.line, col: k.col, endCol: k.endCol)
+  # Assignment '=' inside an if/elif/while/when CONDITION — the classic `==` typo
+  # (`if x = 5:`). A bare depth-0 `=` there is always malformed (assignment is not
+  # an expression in Nim); named args use `=` only inside `()` (depth > 0), so
+  # this cannot false-positive. nifler reports a generic "expected ':', but got
+  # '='"; we say what actually went wrong and offer the fix.
+  for i in 0 ..< toks.len:
+    let k = toks[i]
+    if k.kind != tkKeyword or (k.s != "if" and k.s != "elif" and
+                               k.s != "while" and k.s != "when"): continue
+    # scan the condition: from after the keyword to the depth-0 `:` (or line end).
+    var depth = 0
+    var j = i + 1
+    while j < toks.len:
+      let t2 = toks[j]
+      if t2.kind == tkEof: break
+      if t2.kind == tkParLe or t2.kind == tkBracketLe or t2.kind == tkCurlyLe:
+        inc depth
+      elif t2.kind == tkParRi or t2.kind == tkBracketRi or t2.kind == tkCurlyRi:
+        if depth > 0: dec depth else: break
+      elif depth == 0 and t2.kind == tkColon: break
+      elif depth == 0 and t2.line != k.line: break   # condition ended at newline
+      elif depth == 0 and t2.kind == tkOperator and t2.s == "=":
+        result.add Diagnostic(severity: sevError, code: "assignment-in-condition",
+          message: "'=' assigns; this '" & k.s & "' condition needs a comparison",
+          line: t2.line, col: t2.col, endCol: t2.endCol,
+          fix: "did you mean '=='?")
+        break
+      inc j
   # last significant (non-comment) token
   var last = -1
   for i in countdown(toks.len - 1, 0):
