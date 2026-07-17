@@ -167,18 +167,33 @@ proc parseTypeRangeImpl(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32) =
       b.endTree()
       return
     let elems0 = ps.splitArgs(int(lo) + 1, rb)
-    # A single grouped element wrapped in parens is `(par x)`, not a tuple. This
-    # includes a parenthesized PROC/ITERATOR type (`(proc(s: string): int)` as a
-    # return type): its `:` is the routine's return colon, NOT a `field: T` tuple
-    # separator, so the depth-0-colon test alone would wrongly route it to `tup`.
-    let inner0 = if elems0.len == 1: ps.tok(elems0[0]) else: first
-    let inner0Proc = inner0.kind == tkKeyword and
-                     (inner0.s == "proc" or inner0.s == "iterator")
-    if elems0.len == 1 and elems0[0] < rb and
-       (ps.depth0Colon(elems0[0], rb) < 0 or inner0Proc):
+    # A SINGLE grouped element (no trailing comma) is `(par x)`, not a tuple —
+    # matching nifler for every case: `(int)`, a named `(x: int)`, and a proc type
+    # `(proc(s: string): int)` all → `par`; only multiple elements or a trailing
+    # comma (`(int,)`) make a `tup`. A single element's depth-0 `:` is a proc
+    # return colon or a lone field, NOT a tuple separator, so it must not force tup.
+    let trailComma0 = rb > int(lo) + 1 and ps.tok(rb - 1).kind == tkComma
+    if elems0.len == 1 and elems0[0] < rb and not trailComma0:
       b.addTree "par"
       ps.emitInfo(b, first.line, first.col, pl, pc, false)
-      parseTypeRange(ps, b, int32(elems0[0]), int32(rb), first.line, first.col)
+      # A NAMED single element (`(x: int)`) keeps its field as `(kv name type)`
+      # inside the par, exactly as the tuple path emits it; the colon here is a
+      # field label, not a proc return colon. A proc/iterator type is parsed
+      # whole (its `:` is the return colon), and an unnamed element is a plain type.
+      let c0 = ps.depth0Colon(elems0[0], rb)
+      let e0 = ps.tok(elems0[0])
+      let e0Routine = e0.kind == tkKeyword and
+                      (e0.s == "proc" or e0.s == "iterator")
+      if c0 >= 0 and not e0Routine and ps.tok(elems0[0]).kind == tkIdent:
+        let nm = ps.tok(elems0[0])
+        b.addTree "kv"
+        ps.emitInfo(b, nm.line, nm.col, first.line, first.col, false)
+        b.addIdent nm.s
+        ps.emitInfo(b, nm.line, nm.col, nm.line, nm.col, false)
+        parseTypeRange(ps, b, int32(c0 + 1), int32(rb), nm.line, nm.col)
+        b.endTree()
+      else:
+        parseTypeRange(ps, b, int32(elems0[0]), int32(rb), first.line, first.col)
       b.endTree()
       return
     # An EMPTY `()` in type position is `(par)`, not an empty tuple — e.g. the
