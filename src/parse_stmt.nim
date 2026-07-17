@@ -1026,6 +1026,9 @@ proc parsePostExprBlock(ps: var Parser; b: var Builder; headLo, colonIdx: int;
       else:
         ps.parseExprRange(b, int32(headLo), int32(doIdx), anchor.line, anchor.col)    # callee
       result = ps.emitBody(b, colonIdx, refIndent, anchor.line, anchor.col)       # (stmts body)
+      # fold trailing aligned `do:` blocks (`withData(…) do:⏎ a⏎do:⏎ b`) into the
+      # same call as extra `(stmts …)` args, instead of leaving a stray `(call do …)`.
+      result = ps.appendTrailingDo(b, result, int(refIndent), anchor.line, anchor.col)
       b.endTree()   # call
       return
     if doIdx > headLo and ps.tok(doIdx + 1).kind == tkParLe:
