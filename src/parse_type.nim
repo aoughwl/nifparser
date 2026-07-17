@@ -1045,6 +1045,29 @@ proc parseTypeDef(ps: var Parser; b: var Builder; nameIdx, typeKwCol: int;
       resultIdx = hi
   else:
     b.addEmpty
+    # No `=`: a bare `type Name` is a valid forward declaration — but if an
+    # indented body follows (fields, `object`/`enum` members), the author forgot
+    # the `= object`/`= enum`/`= …`. nifler only spews "invalid indentation" per
+    # body line; we name the omission and point at the type. Skip deeper doc
+    # comments (a documented forward decl is not a body), then require a real
+    # deeper statement token.
+    block:
+      var k = resultIdx
+      while ps.tok(k).kind == tkComment and ps.tok(k).indent > int32(defIndent): inc k
+      let bt = ps.tok(k)
+      # Only a real identifier can be a forward-declared type name; a keyword
+      # here (e.g. a `do:` block trailing a `T = call:` in a type section) is a
+      # parser-sectioning quirk of valid code, not a forgotten `=`.
+      if nameTok.kind == tkIdent and bt.kind != tkEof and bt.indent > int32(defIndent):
+        ps.perrRel("missing-type-equals",
+          "type '" & nameTok.s & "' has an indented body but no '=' to introduce it",
+          bt, "type '" & nameTok.s & "' declared here", nameTok,
+          fix = "insert '= object' (or '= enum', '= …') after the name")
+        # recover: swallow the mis-indented body so its lines aren't re-parsed
+        # as spurious sibling type defs
+        while ps.tok(k).kind != tkEof and ps.tok(k).indent > int32(defIndent):
+          k = ps.lineEnd(k)
+        resultIdx = k
   b.endTree()
   result = resultIdx
 

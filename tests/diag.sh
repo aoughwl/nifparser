@@ -265,6 +265,29 @@ for ok in 'if true: discard' 'if true:\n  discard' 'proc f() =\n  if c:\n    a' 
     echo "FAIL: valid '$ok' must be silent"; fail=1; }
 done
 
+# (4p) a `type Name` with an indented body but no `=` — the author forgot the
+# `= object`/`= enum`/`= …`. nifler only spews "invalid indentation" per body
+# line; we name the type, point at it, and offer the fix. Must NOT fire on a bare
+# forward decl, a documented forward decl, a real `= object`, sibling defs, or the
+# exotic `T = call:` + trailing `do:` type-section construct (name is a keyword).
+for bad in 'type\n  MyObj\n    x: int' 'type\n  E\n    a\n    b'; do
+  printf "$bad\n" > "$WORK/ty.nim"
+  out="$("$NP" check "$WORK/ty.nim" 2>&1)"
+  grep -q 'missing-type-equals' <<<"$out" || {
+    echo "FAIL: '$bad' should report missing-type-equals"; fail=1; }
+  grep -q 'help: ' <<<"$out" || { echo "FAIL: missing-type-equals should carry a fix"; fail=1; }
+  grep -q 'declared here' <<<"$out" || { echo "FAIL: missing-type-equals should point at the type"; fail=1; }
+done
+# valid forms that must stay silent
+printf 'type\n  Fwd\n  Other = int\n' > "$WORK/ty.nim"
+grep -q 'missing-type-equals' <<<"$("$NP" check "$WORK/ty.nim" 2>&1)" && {
+  echo "FAIL: forward decl + sibling def must be silent"; fail=1; }
+for ok in 'type T = object\n    x: int' 'type\n  Doc\n    ## just docs' 'type X = int'; do
+  printf "$ok\n" > "$WORK/ty.nim"
+  grep -q 'missing-type-equals' <<<"$("$NP" check "$WORK/ty.nim" 2>&1)" && {
+    echo "FAIL: valid '$ok' must be silent"; fail=1; }
+done
+
 # (5) diagnostics are emitted in SOURCE ORDER (top-to-bottom), not validator order.
 printf 'let a = (1\nvar b = {2\n' > "$WORK/ord.nim"
 lines="$("$NP" check "$WORK/ord.nim" 2>&1)"
