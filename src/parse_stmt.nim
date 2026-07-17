@@ -805,6 +805,21 @@ proc parseSectionDef(ps: var Parser; b: var Builder; lo, hi: int; tag: string;
         # a return type, not a block; a `:` inside brackets stays at depth > 0.
         result = ps.parsePostExprBlock(b, valLo, ps.depth0Colon(valLo, hi),
                                        anchor.line, anchor.col)
+      elif nameStarts.len == 1 and vt.kind == tkKeyword and
+           (vt.s == "proc" or vt.s == "func" or vt.s == "iterator"):
+        # anonymous routine value (`let f = proc(…): T =⏎ <indented body>`): the
+        # body block is indented past this def but the def range stops at the
+        # `=` line's end, so the trailing body statements would leak out and be
+        # re-parsed as stray top-level siblings. Extend over every deeper line
+        # and report the extended end (mirrors the asgn-stmt anon-routine branch).
+        let stmtIndent = if ps.tok(lo).indent >= 0: int(ps.tok(lo).indent)
+                         else: int(ps.tok(lo).col)
+        var newHi = int(hi)
+        while ps.tok(newHi).kind != tkEof and ps.tok(newHi).indent >= 0 and
+              int(ps.tok(newHi).indent) > stmtIndent:
+          newHi = ps.lineEnd(newHi)
+        ps.parseExprRange(b, int32(valLo), int32(newHi), anchor.line, anchor.col)
+        result = newHi
       else:
         ps.parseExprRange(b, int32(valLo), int32(hi), anchor.line, anchor.col)  # value
     else:
