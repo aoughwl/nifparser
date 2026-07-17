@@ -949,6 +949,31 @@ proc parsePostExprBlock(ps: var Parser; b: var Builder; headLo, colonIdx: int;
         doIdx = k; break
       inc k
     if doIdx > headLo and ps.tok(doIdx + 1).kind != tkParLe:
+      # A command prefix before `do` (`dst.add quote do: body`): the do-block binds
+      # to the LAST argument, not the whole command → `(cmd <callee> …args…
+      # (call <lastArg> (stmts body)))`, matching nifler.
+      let cce = ps.cmdCalleeEnd(headLo, doIdx)
+      if (ps.tok(headLo).kind == tkIdent or isOpenBracket(ps.tok(headLo).kind)) and
+         cce < doIdx and ps.startsArg(cce, doIdx):
+        let cAnchor = ps.calleeAnchor(headLo, cce)
+        b.addTree "cmd"
+        ps.emitInfo(b, cAnchor.line, cAnchor.col, pl, pc, false)
+        ps.parseExprRange(b, int32(headLo), int32(cce), cAnchor.line, cAnchor.col)  # callee
+        let starts = ps.splitArgs(cce, doIdx)
+        for ai in 0 ..< starts.len:
+          let aLo = starts[ai]
+          let aHi = if ai + 1 < starts.len: starts[ai + 1] - 1 else: doIdx
+          if ai < starts.len - 1:
+            ps.parseArg(b, int32(aLo), int32(aHi), cAnchor.line, cAnchor.col)
+          else:
+            let aTok = ps.tok(aLo)
+            b.addTree "call"
+            ps.emitInfo(b, aTok.line, aTok.col, cAnchor.line, cAnchor.col, false)
+            ps.parseExprRange(b, int32(aLo), int32(aHi), aTok.line, aTok.col)   # last-arg callee
+            result = ps.emitBody(b, colonIdx, refIndent, aTok.line, aTok.col)   # (stmts body)
+            b.endTree()   # call
+        b.endTree()   # cmd
+        return
       # paramless `do:` — `expr do: body` / `quote do: body` collapses to
       # `(call <callee> (stmts body))`, the `do` (and its empty params) folded
       # away entirely, matching nifler's handling.
