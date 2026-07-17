@@ -518,9 +518,21 @@ proc lexNumber(lx: var Lexer): Token =
 
   if isFloat:
     result.kind = tkFloatLit
-    if floatText.len == 0: floatText = digits
-    result.fVal = parseFloatStr(floatText)
-    result.s = floatText
+    if base != 10:
+      # A hex/oct/bin literal with a FLOAT suffix (`0x7FF0000000000000'f64`)
+      # reinterprets the integer BITS as the float — this is how `Inf`/`NaN` are
+      # spelled. Decode the bits and cast, rather than reading the hex digits as a
+      # (wrong) decimal float.
+      let bits = decodeIntBase(digits, base)
+      if result.suffix == "f32":
+        result.fVal = float(cast[float32](uint32(bits)))
+      else:
+        result.fVal = cast[float](bits)
+      result.s = digits
+    else:
+      if floatText.len == 0: floatText = digits
+      result.fVal = parseFloatStr(floatText)
+      result.s = floatText
   else:
     result.kind = tkIntLit
     result.iVal = decodeIntBase(digits, base)

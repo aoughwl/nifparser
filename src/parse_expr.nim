@@ -638,12 +638,32 @@ proc parsePrimaryRangeImpl(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32
       b.addStrLit suf
       b.endTree()
   of tkFloatLit:
+    # IEEE-754 special values (`Inf`/`-Inf`/`NaN`, spelled as hex-bit literals in
+    # system.nim) render as the tag nodes `(inf)`/`(neginf)`/`(nan)`, not a
+    # decimal float — nifler detects the bit pattern of the f64 value.
+    let bits = cast[uint64](t.fVal)
+    let special =
+      if bits == 0x7FF0000000000000'u64: "inf"
+      elif bits == 0xFFF0000000000000'u64: "neginf"
+      elif (bits and 0x7FF0000000000000'u64) == 0x7FF0000000000000'u64 and
+           (bits and 0x000FFFFFFFFFFFFF'u64) != 0'u64: "nan"
+      else: ""
     if t.suffix.len == 0:
-      b.addFloatLit(t.fVal, t.col - pc, t.line - pl, "")
+      if special.len > 0:
+        b.addTree special
+        ps.emitInfo(b, t.line, t.col, pl, pc, false)
+        b.endTree()
+      else:
+        b.addFloatLit(t.fVal, t.col - pc, t.line - pl, "")
     else:
       b.addTree "suf"
       ps.emitInfo(b, t.line, t.col, pl, pc, false)
-      b.addFloatLit t.fVal
+      if special.len > 0:
+        b.addTree special
+        ps.emitInfo(b, t.line, t.col, t.line, t.col, false)
+        b.endTree()
+      else:
+        b.addFloatLit t.fVal
       b.addStrLit t.suffix
       b.endTree()
   of tkStrLit:
