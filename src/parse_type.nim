@@ -124,6 +124,17 @@ proc parseTypeRangeImpl(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32) =
   if first.kind == tkKeyword and (first.s == "proc" or first.s == "iterator"):
     parseProcType(ps, b, lo, hi, pl, pc)
     return
+  # `func` is never valid in a type description — parseType is only ever entered
+  # in a type position (field/param types, aliases, generics), so a `func` head
+  # here is always the "use proc {.noSideEffect.} instead" mistake. Report it,
+  # then recover by parsing it as the proc type the author meant.
+  if first.kind == tkKeyword and first.s == "func":
+    ps.perrAt("func-in-type-description",
+      "'func' is not allowed in a type description — use 'proc' with a '{.noSideEffect.}' pragma",
+      first.line, first.col,
+      fix = "write 'proc (...) {.noSideEffect.}'")
+    parseProcType(ps, b, lo, hi, pl, pc)
+    return
   # lone `nil` type → `(nil)`. (A `nil <arg>` typed-nil, e.g. `nil pointer`, is a
   # type-context command and is handled by the command block below, which emits
   # this `(nil)` as its callee.)
@@ -852,7 +863,16 @@ proc parseEnum(ps: var Parser; b: var Builder; enumIdx, defIndent: int;
     if iLo >= iHi: continue
     var j = iLo
     let nameTok = ps.tok(j)
-    if nameTok.kind != tkIdent: continue
+    if nameTok.kind != tkIdent:
+      # An enum member is always an identifier. A keyword head (e.g. `when
+      # defined(x): …` spliced into an enum body) is never valid — nifler says
+      # "identifier expected, but got 'keyword when'". Flag it, then skip.
+      if nameTok.kind == tkKeyword:
+        ps.perrAt("enum-member-not-identifier",
+          "enum members must be identifiers, but found keyword '" & nameTok.s & "'",
+          nameTok.line, nameTok.col,
+          fix = "conditional enum members aren't allowed — list the members directly")
+      continue
     inc j
     var pragLo = -1
     var pragHi = -1

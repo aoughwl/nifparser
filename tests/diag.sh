@@ -288,6 +288,33 @@ for ok in 'type T = object\n    x: int' 'type\n  Doc\n    ## just docs' 'type X 
     echo "FAIL: valid '$ok' must be silent"; fail=1; }
 done
 
+# (4q) `func` used in a type description — illegal in Nim (must be `proc` with a
+# `{.noSideEffect.}` pragma). parseType is only ever entered in a type position,
+# so a `func` head is unambiguous. Must NOT fire on a top-level `func` routine.
+printf 'type T = object\n  fn: func(a: int): int\n' > "$WORK/fn.nim"
+out="$("$NP" check "$WORK/fn.nim" 2>&1)"
+grep -q 'func-in-type-description' <<<"$out" || { echo "FAIL: func in type-desc should be flagged"; fail=1; }
+grep -q 'help: ' <<<"$out" || { echo "FAIL: func-in-type-description should carry a fix"; fail=1; }
+for ok in 'func f(a: int): int =\n  a' 'type T = object\n  fn: proc(a: int): int' \
+          'proc p() {.noSideEffect.} = discard'; do
+  printf "$ok\n" > "$WORK/fn.nim"
+  grep -q 'func-in-type-description' <<<"$("$NP" check "$WORK/fn.nim" 2>&1)" && {
+    echo "FAIL: valid '$ok' must be silent"; fail=1; }
+done
+
+# (4r) a keyword (e.g. `when`) spliced in where an enum member is expected — enum
+# members are always plain identifiers. Must NOT fire on ordinary enum members,
+# valued members, or pragma-decorated ones.
+printf 'type E = enum\n  a\n  when defined(x): b\n  c\n' > "$WORK/en.nim"
+out="$("$NP" check "$WORK/en.nim" 2>&1)"
+grep -q 'enum-member-not-identifier' <<<"$out" || { echo "FAIL: when-in-enum should be flagged"; fail=1; }
+for ok in 'type E = enum\n  a\n  b\n  c' 'type E = enum\n  a = 1\n  b = 2' \
+          'type E = enum\n  a {.deprecated.}\n  b'; do
+  printf "$ok\n" > "$WORK/en.nim"
+  grep -q 'enum-member-not-identifier' <<<"$("$NP" check "$WORK/en.nim" 2>&1)" && {
+    echo "FAIL: valid '$ok' must be silent"; fail=1; }
+done
+
 # (5) diagnostics are emitted in SOURCE ORDER (top-to-bottom), not validator order.
 printf 'let a = (1\nvar b = {2\n' > "$WORK/ord.nim"
 lines="$("$NP" check "$WORK/ord.nim" 2>&1)"
