@@ -20,6 +20,15 @@ type
     curly*: bool   ## experimental: accept `{ … }` as a block body alongside `:`
     depth*: int    ## live recursion nesting through the main parse entry points
     maxDepth*: int ## abort ceiling for `depth` (0 = unlimited, the default)
+    diags*: seq[Diagnostic]
+                   ## GRAMMAR diagnostics recorded while parsing. The parser is
+                   ## deliberately permissive — wherever a construct is malformed
+                   ## it COPES (empty slot, sentinel guard, progress guard) so it
+                   ## can keep going and still emit a tree. Every one of those
+                   ## coping points is precisely an "expected X here" site, i.e.
+                   ## exactly what the classic parser reports before it gives up.
+                   ## Recording them here is what lets us match its error coverage
+                   ## while keeping recovery. Never affects the emitted AIF.
     section*: string ## nifler's un-scoped `c.section` state: a var/let/const
                      ## section resets it to its own tag, but parsing a `(params)`
                      ## list (proc/proctype value or type) overwrites it to
@@ -29,6 +38,32 @@ type
 proc initParser*(toks: seq[Token]; file: string; curly = false;
                  maxDepth = 0): Parser =
   Parser(toks: toks, file: file, curly: curly, depth: 0, maxDepth: maxDepth)
+
+proc perr(ps: var Parser; code, msg: string; t: Token; fix = "") =
+  ## Record a GRAMMAR error at token `t` and keep parsing. Called from the
+  ## parser's coping points (a missing `:`, a missing `in`, …) — the places the
+  ## classic parser would abort at. `fix` is an optional suggested repair.
+  ps.diags.add Diagnostic(severity: sevError, code: code, message: msg,
+                          line: t.line, col: t.col, endCol: t.endCol, fix: fix)
+
+proc perrAt(ps: var Parser; code, msg: string; line, col: int32; fix = "") =
+  ## `perr` at a raw position, for coping points that hold a parent position
+  ## rather than a token (e.g. `emitBody`, which only knows its branch anchor).
+  ps.diags.add Diagnostic(severity: sevError, code: code, message: msg,
+                          line: line, col: col, endCol: col, fix: fix)
+
+proc perrRel(ps: var Parser; code, msg: string; t: Token; relMsg: string;
+             rel: Token; fix = "") =
+  ## `perr` plus a RELATED location (e.g. the `if` an `elif` branch belongs to).
+  ## A related marker AT the error's own position is pure noise — that happens
+  ## for a first `if`, where the branch keyword IS the construct keyword — so
+  ## drop it and emit a plain error instead.
+  if rel.line == t.line and rel.col == t.col:
+    ps.perr(code, msg, t, fix)
+    return
+  ps.diags.add Diagnostic(severity: sevError, code: code, message: msg,
+                          line: t.line, col: t.col, endCol: t.endCol, fix: fix,
+                          relMsg: relMsg, relLine: rel.line, relCol: rel.col)
 
 proc enterDepth(ps: var Parser; line: int32) =
   ## Bump the recursion counter and abort (non-zero exit) if `--max-depth` is

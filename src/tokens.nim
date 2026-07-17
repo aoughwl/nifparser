@@ -53,12 +53,22 @@ type
     ## every problem at once. `code` is a short stable slug (e.g. "unknown-byte",
     ## "unclosed-bracket") for filtering; `line`/`col` are 1-based/0-based like a
     ## Token, `endCol` bounds the span on `line` (== col for a point).
+    ##
+    ## `fix` is an optional human-readable suggested repair ("insert ':'") — the
+    ## classic parser offers nothing of the sort; an editor can surface it as a
+    ## quick-fix. `relLine`/`relCol`/`relMsg` carry an optional RELATED source
+    ## location (the `(` an unclosed bracket was opened at), which LSP renders as
+    ## a secondary marker instead of burying it in the message text.
     severity*: Severity
     code*: string
     message*: string
     line*: int32
     col*: int32
     endCol*: int32
+    fix*: string
+    relMsg*: string
+    relLine*: int32
+    relCol*: int32
 
   Token* = object
     kind*: TokKind

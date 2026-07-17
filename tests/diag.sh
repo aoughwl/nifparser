@@ -66,6 +66,27 @@ printf 'x)\n' > "$WORK/c.nim"
 grep -q "unmatched ')'" <<<"$("$NP" check "$WORK/c.nim" 2>&1)" || {
   echo "FAIL: unmatched-close must name the actual bracket"; fail=1; }
 
+# (4d) GRAMMAR errors from the parser's coping points. Every place the parser
+# silently copes with malformed input is an "expected X here" site — the same
+# thing the classic parser reports before it gives up. These must surface.
+printf 'if c\n  echo 1\n' > "$WORK/gc.nim"
+grep -q 'expected-colon' <<<"$("$NP" check "$WORK/gc.nim" 2>&1)" || {
+  echo "FAIL: 'if c' with no colon should report expected-colon"; fail=1; }
+printf '(for: )\n' > "$WORK/gc.nim"
+grep -q 'expected-in' <<<"$("$NP" check "$WORK/gc.nim" 2>&1)" || {
+  echo "FAIL: '(for: )' should report expected-in"; fail=1; }
+printf '(block)\n' > "$WORK/gc.nim"
+grep -q 'expected-colon' <<<"$("$NP" check "$WORK/gc.nim" 2>&1)" || {
+  echo "FAIL: '(block)' should report expected-colon"; fail=1; }
+
+# (4e) a suggested FIX accompanies grammar errors (text `help:`, json `"fix"`) —
+# the classic parser has no such concept.
+printf 'if c\n  echo 1\n' > "$WORK/gc.nim"
+grep -q 'help: ' <<<"$("$NP" check "$WORK/gc.nim" 2>&1)" || {
+  echo "FAIL: grammar error should carry a 'help:' fix"; fail=1; }
+grep -q '"fix":' <<<"$("$NP" check --diagnostics:json "$WORK/gc.nim" 2>&1)" || {
+  echo "FAIL: json should carry a \"fix\" field"; fail=1; }
+
 # (5) diagnostics are emitted in SOURCE ORDER (top-to-bottom), not validator order.
 printf 'let a = (1\nvar b = {2\n' > "$WORK/ord.nim"
 lines="$("$NP" check "$WORK/ord.nim" 2>&1)"

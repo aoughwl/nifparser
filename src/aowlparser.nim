@@ -172,6 +172,13 @@ proc renderDiags(diags: seq[Diagnostic]; fileField: string; fmt: DiagFormat;
     for d in diags:
       write dest, fileField & ":" & $d.line & ":" & $(d.col + 1) & ": " &
         sevName(d.severity) & "[" & d.code & "]: " & d.message & "\n"
+      # A related location and a suggested fix are rendered as indented notes,
+      # the way a modern compiler does. The classic parser offers neither.
+      if d.relMsg.len > 0:
+        write dest, "  note: " & d.relMsg & " (" & fileField & ":" & $d.relLine &
+          ":" & $(d.relCol + 1) & ")\n"
+      if d.fix.len > 0:
+        write dest, "  help: " & d.fix & "\n"
   of dfJson:
     var s = "["
     for i in 0 ..< diags.len:
@@ -180,7 +187,13 @@ proc renderDiags(diags: seq[Diagnostic]; fileField: string; fmt: DiagFormat;
       s.add "{\"severity\":\"" & sevName(d.severity) & "\",\"code\":\"" &
         d.code & "\",\"message\":\"" & jsonEscape(d.message) &
         "\",\"line\":" & $d.line & ",\"col\":" & $d.col &
-        ",\"endCol\":" & $d.endCol & "}"
+        ",\"endCol\":" & $d.endCol
+      if d.fix.len > 0:
+        s.add ",\"fix\":\"" & jsonEscape(d.fix) & "\""
+      if d.relMsg.len > 0:
+        s.add ",\"related\":{\"message\":\"" & jsonEscape(d.relMsg) &
+          "\",\"line\":" & $d.relLine & ",\"col\":" & $d.relCol & "}"
+      s.add "}"
     s.add "]\n"
     write dest, s
 
@@ -201,9 +214,9 @@ proc runParse(src, outp, fileField: string; toStdout, strict, curly: bool;
   ## Tokenize `src`, parse it, and emit the AIF to `outp` (or stdout). Diagnostics
   ## (lexer + bracket check) are rendered to stderr in `diagFmt`; parsing is never
   ## aborted by them. With `strict`, any `sevError` diagnostic exits non-zero.
-  let (toks, diags) = collectDiags(src, opts)
-  renderDiags(diags, fileField, diagFmt, stderr)
+  let (toks, diags0) = collectDiags(src, opts)
   var ps = initParser(toks, fileField, curly, maxDepth)
+  var diags = diags0
   if toStdout:
     # nifbuilder can target a file or an in-memory buffer; for stdout we build
     # in memory then stream the bytes out.
@@ -215,6 +228,12 @@ proc runParse(src, outp, fileField: string; toStdout, strict, curly: bool;
     var b = nifbuilder.open(outp)
     parseModule(ps, b)
     b.close()
+  # Grammar diagnostics are produced BY the parse, so they can only be merged
+  # once it has run. Re-sort so lexer/bracket/grammar errors interleave in
+  # source order.
+  for d in ps.diags: diags.add d
+  sortBySourceOrder(diags)
+  renderDiags(diags, fileField, diagFmt, stderr)
   if strict:
     var nErr = 0
     for d in diags:
@@ -223,12 +242,24 @@ proc runParse(src, outp, fileField: string; toStdout, strict, curly: bool;
       write stderr, "aowlparser: " & $nErr & " error(s) in input [--strict]\n"
       quit 1
 
-proc runCheck(src, fileField: string; opts: LexOptions; diagFmt: DiagFormat): int =
+proc runCheck(src, fileField: string; opts: LexOptions; diagFmt: DiagFormat;
+              curly = false; maxDepth = 0): int =
   ## Lint-only mode (`aowlparser check`): emit diagnostics to STDOUT (text or json,
   ## default text) and no AIF. Returns the process exit code — 1 if any error-level
   ## diagnostic was found, else 0. This is the "better errors than nifler" surface:
   ## recoverable, multi-error, machine-readable, and it never aborts on the first.
-  let (_, diags) = collectDiags(src, opts)
+  let (toks, diags0) = collectDiags(src, opts)
+  var diags = diags0
+  # GRAMMAR errors are discovered by parsing (each of the parser's coping points
+  # is an "expected X here" site), so `check` runs a full parse and throws the
+  # tree away. That is what gives lint mode the classic parser's error coverage
+  # while still recovering past every one of them.
+  var ps = initParser(toks, fileField, curly, maxDepth)
+  var b = nifbuilder.open(4096)
+  parseModule(ps, b)
+  discard b.extract()
+  for d in ps.diags: diags.add d
+  sortBySourceOrder(diags)
   let fmt = if diagFmt == dfOff: dfText else: diagFmt
   renderDiags(diags, fileField, fmt, stdout)
   for d in diags:
@@ -463,7 +494,7 @@ proc main() =
       discard   # unresolvable path → keep the arg verbatim
   # `check` is lint-only: diagnostics to stdout, no AIF, exit 1 on any error.
   if action == "check":
-    quit runCheck(src, fileField, opts, diagFmt)
+    quit runCheck(src, fileField, opts, diagFmt, curly, maxDepth)
   # Resolve the output target.
   var outp = ""
   if not useStdout:

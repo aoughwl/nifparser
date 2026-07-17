@@ -244,8 +244,13 @@ proc emitBody(ps: var Parser; b: var Builder; colonIdx: int; refIndent: int32;
   ## (`if c: stmt`) and the indented block (mirrors parseRoutine's body loop).
   ## `pl,pc` = the controlling branch node position (parent of the stmts node).
   if colonIdx < 0:
-    # No body-introducing `:` found (should not happen now that lineEnd handles
-    # continuations). Emit an empty body and do NOT restart at token 0.
+    # No body-introducing `:` found — the construct is malformed (`if c` with no
+    # colon, `while x`, a bare `try`). EVERY statement control-flow form funnels
+    # its body through here, so this one site reports them all. Emit an empty body
+    # and do NOT restart at token 0.
+    ps.perrAt("expected-colon",
+              "expected ':' to open this block's body", pl, pc,
+              fix = "insert ':' at the end of the line")
     b.addTree "stmts"; b.addEmpty; b.endTree()
     return colonIdx     # caller advances past this construct via its own lineEnd
   if ps.tok(colonIdx).kind == tkCurlyLe:
@@ -539,8 +544,14 @@ proc parseForExpr(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32; bare = 
     # A malformed `for` — no body colon (`(for)`) or no `in` (`(for: )`). Both
     # sentinels are -1, so `colon + 1` / `inIdx + 1` would index token 0 and the
     # iterable/body would be parsed from the START OF FILE, recursing forever.
-    # Emit an empty `for` instead; `check` reports the real error.
+    # Emit an empty `for` instead.
     let kwT = ps.tok(kwIdx)
+    if inIdx < 0:
+      ps.perr("expected-in", "expected 'in' in the 'for' header", kwT,
+              fix = "write 'for <vars> in <iterable>: …'")
+    else:
+      ps.perr("expected-colon", "expected ':' to open the 'for' body", kwT,
+              fix = "insert ':' after the iterable")
     b.addTree "for"
     ps.emitInfo(b, kwT.line, kwT.col, pl, pc, false)
     b.addEmpty 3   # iterable, vars, body

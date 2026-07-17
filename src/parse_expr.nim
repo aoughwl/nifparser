@@ -239,8 +239,16 @@ proc parseIfExpr(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32;
       # A malformed branch with NO body colon — the degenerate `(if)` / `(when)`.
       # `colon` stays -1, so `colon + 1` would be token 0 and the branch body
       # would be re-parsed from the START OF FILE, recursing until the stack (or
-      # patience) runs out. Emit an empty branch instead and move on; `check`
-      # reports the real error. `nxt` is always > i, so this always progresses.
+      # patience) runs out. Emit an empty branch instead and move on.
+      # `nxt` is always > i, so this always progresses.
+      if isElse:
+        ps.perr("expected-colon", "expected ':' to open the 'else' body", kw,
+                fix = "insert ':' after 'else'")
+      else:
+        ps.perrRel("expected-colon",
+                   "expected ':' after the '" & tag & "' condition", kw,
+                   "'" & tag & "' branch starts here", ifTok,
+                   fix = "insert ':' before the branch body")
       b.addTree(if isElse: "else" else: "elif")
       ps.emitInfo(b, kw.line, kw.col, ifTok.line, ifTok.col, false)
       if not isElse: b.addEmpty    # condition
@@ -796,8 +804,9 @@ proc parsePrimaryRangeImpl(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32
           if bcolon < 0:
             # A malformed `block` with NO body colon — the degenerate `(block)`.
             # `bcolon + 1` would index token 0, so the body would be parsed from
-            # the START OF FILE and recurse forever. Emit an empty body instead;
-            # `check` reports the real error.
+            # the START OF FILE and recurse forever. Emit an empty body instead.
+            ps.perr("expected-colon", "expected ':' to open the 'block' body", rt,
+                    fix = "insert ':' after 'block'")
             b.addEmpty
             break blockBody
           let first = ps.tok(bcolon + 1)
