@@ -387,6 +387,56 @@ proc checkGrammar(toks: seq[Token]; opts: LexOptions): seq[Diagnostic] =
         elif depth == 0 and t2.kind == tkOperator and t2.s == "=": break
         inc j
     inc cbi
+  # `fn main() { … }` / `function f() { … }` / `fun f() { … }` — a routine defined
+  # with a FOREIGN function keyword (Rust `fn`, JS `function`, Kotlin `fun`) plus a
+  # C-style `{ }` body. Nim uses `proc name() = <indented body>`. These words are
+  # valid Nim IDENTIFIERS (so `fn(x)` is a call), so we demand the full shape: the
+  # word FIRST on its line, a name, a balanced `(…)`, then a `{` body opener —
+  # exactly the c-brace-body evidence a set-literal argument can't forge. A `->`/`:`
+  # return type is allowed before the `{`; a depth-0 `=` (a real Nim body) bails.
+  const foreignFnKw = ["fn", "function", "fun"]
+  var ffi = 0
+  while ffi < toks.len:
+    let k = toks[ffi]
+    var isFfk = false
+    if k.kind == tkIdent:
+      for fk in foreignFnKw:
+        if k.s == fk: isFfk = true
+    if isFfk:                                    # must be first on its line
+      var p = ffi - 1
+      while p >= 0 and toks[p].kind == tkComment: dec p
+      if p < 0 or toks[p].line != k.line:
+        var j = ffi + 1                          # the routine name
+        while j < toks.len and toks[j].kind == tkComment: inc j
+        if j < toks.len and toks[j].kind == tkIdent and toks[j].line == k.line:
+          var depth = 0
+          var sawParams = false
+          var m = j + 1
+          while m < toks.len:
+            let t2 = toks[m]
+            if t2.kind == tkEof or t2.line != k.line: break
+            if t2.kind == tkParLe or t2.kind == tkBracketLe:
+              inc depth
+            elif t2.kind == tkParRi or t2.kind == tkBracketRi:
+              if depth > 0:
+                dec depth
+                if depth == 0 and t2.kind == tkParRi: sawParams = true
+            elif t2.kind == tkCurlyLe:
+              if depth == 0:
+                let nextIsDot = m + 1 < toks.len and toks[m + 1].kind == tkDot
+                if sawParams and not nextIsDot:
+                  result.add Diagnostic(severity: sevError,
+                    code: "foreign-function-keyword",
+                    message: "'" & k.s & "' is not a Nim keyword — define a routine with 'proc'",
+                    line: k.line, col: k.col, endCol: k.endCol,
+                    fix: "use 'proc " & toks[j].s &
+                         "() = <indented body>' (Nim has no '" & k.s & "')")
+                break
+              else: inc depth
+            elif t2.kind == tkCurlyRi and depth > 0: dec depth
+            elif depth == 0 and t2.kind == tkOperator and t2.s == "=": break
+            inc m
+    inc ffi
   # `->` as a return-type arrow (`proc f() -> int`, a Rust/Python-3/C++ habit).
   # Nim writes the return type after a colon: `proc f(): int`. Found via the nifler
   # differential. Delicate: `->` is ALSO the std/sugar lambda-type operator

@@ -237,6 +237,21 @@ for ok in 'proc f() {.inline.} = discard' 'proc f(): int {.inline.} = 1' \
     echo "FAIL: valid '{' use must NOT flag c-brace-body ($ok)"; fail=1; }
 done
 
+# (4f3g) foreign-function-keyword — a routine defined with a FOREIGN function
+# keyword (Rust 'fn', JS 'function', Kotlin 'fun') and a C-style '{ }' body. Nim
+# uses 'proc name() = <body>'. Must NOT flag a call 'fn(x)', a variable named
+# 'function'/'fun', or a command-call chain.
+for bad in 'fn main() {\n  discard\n}' 'function f() {\n  return 1\n}' 'fun greet() {\n  echo 1\n}'; do
+  printf '%b\n' "$bad" > "$WORK/ff.nim"
+  grep -q 'foreign-function-keyword' <<<"$("$NP" check "$WORK/ff.nim" 2>&1)" || {
+    echo "FAIL: '$(echo "$bad"|head -1)' should flag foreign-function-keyword"; fail=1; }
+done
+for ok in 'fn(x)' 'let function = 5' 'echo fun(x)' 'result = fn(a, b)' 'fun(a) + g(b)'; do
+  printf '%b\n' "$ok" > "$WORK/ff.nim"
+  grep -q 'foreign-function-keyword' <<<"$("$NP" check "$WORK/ff.nim" 2>&1)" && {
+    echo "FAIL: valid '$ok' must NOT flag foreign-function-keyword"; fail=1; }
+done
+
 # (4f4) c-style-operator — OPT-IN only (--c-operators:warn). '&&'/'||' are Nim's
 # 'and'/'or'. Off by default (they are definable operators); on, they warn but
 # never touch a real 'and'/'or'.
