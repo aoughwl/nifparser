@@ -488,10 +488,21 @@ out="$("$NP" check --diagnostics:json "$WORK/pos.nim" 2>&1)"
 grep -q '"code":"expected-colon"' <<<"$out" || { echo "FAIL: one-liner missing ':' not flagged"; fail=1; }
 grep -q '"col":9' <<<"$out" || { echo "FAIL: colon should point after the condition (col 9): $out"; fail=1; }
 # a colon-less header with an INDENTED body reports the missing ':' EXACTLY ONCE
-# (the duplicate-diagnostic bug), even nested in a routine body.
-printf 'proc f() =\n  if x\n    echo 1\n    echo 2\n' > "$WORK/pos.nim"
-n="$("$NP" check "$WORK/pos.nim" 2>&1 | grep -c 'expected-colon')"
-[ "$n" = "1" ] || { echo "FAIL: nested colon-less 'if' should report ONCE, got $n"; fail=1; }
+# (the duplicate-diagnostic bug), even nested in a routine body — across EVERY
+# block form (if/while/for/block/try/case).
+for hdr in 'if x' 'while x' 'for x in xs' 'block' 'try'; do
+  printf 'proc f() =\n  %s\n    echo 1\n' "$hdr" > "$WORK/pos.nim"
+  n="$("$NP" check "$WORK/pos.nim" 2>&1 | grep -c 'expected-colon')"
+  [ "$n" = "1" ] || { echo "FAIL: nested colon-less '$hdr' should report ':' ONCE, got $n"; fail=1; }
+done
+# a colon-less `for` must NOT also raise a bogus expected-in (the `in` is present).
+printf 'proc f() =\n  for x in xs\n    echo 1\n' > "$WORK/pos.nim"
+grep -q 'expected-in' <<<"$("$NP" check "$WORK/pos.nim" 2>&1)" && {
+  echo "FAIL: colon-less 'for' must not report a bogus expected-in"; fail=1; }
+# but a genuinely missing 'in' still reports expected-in
+printf 'proc f() =\n  for x xs:\n    echo 1\n' > "$WORK/pos.nim"
+grep -q 'expected-in' <<<"$("$NP" check "$WORK/pos.nim" 2>&1)" || {
+  echo "FAIL: a real missing 'in' should report expected-in"; fail=1; }
 
 # (4f7d) simplify-boolean-return — OPT-IN (--idioms:warn). `if c: return true
 # else: return false` (and the result=/swap/inline variants) returns the condition.
