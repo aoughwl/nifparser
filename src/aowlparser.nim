@@ -576,6 +576,39 @@ proc checkGrammar(toks: seq[Token]; opts: LexOptions): seq[Diagnostic] =
         line: t.line, col: t.col, endCol: t.endCol,
         fix: "use '#[ … ]#' for a block comment (or '#' for a line comment)")
     inc bci
+  # `type Foo extends Bar = object` — the Java/TS/Scala inheritance clause. Nim
+  # inherits with `type Foo = object of Bar`. `extends` is a valid identifier, so we
+  # require the `type` keyword and the name on the SAME line (the one-liner form),
+  # then a depth-0 `extends` before the `=`. The indented type-section body form
+  # needs section context we don't track, so it's left alone (never a false hit). A
+  # type literally NAMED `extends` (`type extends = int`) is the first ident and so
+  # is skipped — the scan starts after the name.
+  var exi = 0
+  while exi < toks.len:
+    let k = toks[exi]
+    if k.kind == tkKeyword and k.s == "type":
+      var j = exi + 1
+      while j < toks.len and toks[j].kind == tkComment: inc j
+      if j < toks.len and toks[j].kind == tkIdent and toks[j].line == k.line:
+        var depth = 0
+        var m = j + 1
+        while m < toks.len:
+          let t2 = toks[m]
+          if t2.kind == tkEof or t2.line != k.line: break
+          if t2.kind == tkParLe or t2.kind == tkBracketLe or t2.kind == tkCurlyLe:
+            inc depth
+          elif t2.kind == tkParRi or t2.kind == tkBracketRi or t2.kind == tkCurlyRi:
+            if depth > 0: dec depth
+          elif depth == 0 and t2.kind == tkOperator and t2.s == "=": break
+          elif depth == 0 and t2.kind == tkIdent and t2.s == "extends":
+            result.add Diagnostic(severity: sevError, code: "extends-inheritance",
+              message: "'extends' is not Nim — inherit with 'type " & toks[j].s &
+                       " = object of Base'",
+              line: t2.line, col: t2.col, endCol: t2.endCol,
+              fix: "inherit with 'type Name = object of Base' (or 'ref object of Base')")
+            break
+          inc m
+    inc exi
   # `->` as a return-type arrow (`proc f() -> int`, a Rust/Python-3/C++ habit).
   # Nim writes the return type after a colon: `proc f(): int`. Found via the nifler
   # differential. Delicate: `->` is ALSO the std/sugar lambda-type operator

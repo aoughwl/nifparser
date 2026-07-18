@@ -327,6 +327,21 @@ for ok in 'proc f() = discard' 'proc f(): int = 1' 'proc throws() = discard' \
     echo "FAIL: valid '$ok' must NOT flag foreign-routine-clause"; fail=1; }
 done
 
+# (4f3m) extends-inheritance — the Java/TS/Scala 'type Foo extends Bar' clause.
+# Nim inherits with 'type Foo = object of Bar'. Must NOT flag 'object of Bar', a
+# generic, or a type/variable literally named 'extends'.
+for bad in 'type Foo extends Bar = object' 'type Dog extends Animal = ref object'; do
+  printf '%b\n' "$bad" > "$WORK/ex.nim"
+  grep -q 'extends-inheritance' <<<"$("$NP" check "$WORK/ex.nim" 2>&1)" || {
+    echo "FAIL: '$bad' should flag extends-inheritance"; fail=1; }
+done
+for ok in 'type Foo = object' 'type Foo = object of Bar' 'type Foo = ref object of RootObj' \
+          'type Foo[T] = object' 'type extends = int' 'let extends = 5'; do
+  printf '%b\n' "$ok" > "$WORK/ex.nim"
+  grep -q 'extends-inheritance' <<<"$("$NP" check "$WORK/ex.nim" 2>&1)" && {
+    echo "FAIL: valid '$ok' must NOT flag extends-inheritance"; fail=1; }
+done
+
 # (4f4) c-style-operator — OPT-IN only (--c-operators:warn). '&&'/'||' are Nim's
 # 'and'/'or'. Off by default (they are definable operators); on, they warn but
 # never touch a real 'and'/'or'.
