@@ -554,6 +554,37 @@ for ok in 'except CatchableError:' 'raise newException(ValueError, "x")'; do
     echo "FAIL: '$ok' must NOT be flagged broad-exception"; fail=1; }
 done
 
+# (4f16) bare-except — OPINION (--bare-except:warn), default OFF. `except:` with no
+# type; must NOT fire on a typed `except IOError:`.
+printf 'try:\n  discard\nexcept:\n  discard\n' > "$WORK/be2.nim"
+grep -q 'bare-except' <<<"$("$NP" check "$WORK/be2.nim" 2>&1)" && {
+  echo "FAIL: bare-except must be OFF by default"; fail=1; }
+grep -q 'bare-except' <<<"$("$NP" check --bare-except:warn "$WORK/be2.nim" 2>&1)" || {
+  echo "FAIL: --bare-except:warn should flag 'except:'"; fail=1; }
+printf 'try:\n  discard\nexcept IOError:\n  discard\n' > "$WORK/be2.nim"
+grep -q 'bare-except' <<<"$("$NP" check --bare-except:warn "$WORK/be2.nim" 2>&1)" && {
+  echo "FAIL: a typed 'except IOError:' must NOT be flagged bare-except"; fail=1; }
+
+# (4f17) cast-used — OPINION (--cast:warn), default OFF. `cast[T](x)` only.
+printf 'let y = cast[int](p)\n' > "$WORK/ct.nim"
+grep -q 'cast-used' <<<"$("$NP" check "$WORK/ct.nim" 2>&1)" && {
+  echo "FAIL: cast-used must be OFF by default"; fail=1; }
+grep -q 'cast-used' <<<"$("$NP" check --cast:warn "$WORK/ct.nim" 2>&1)" || {
+  echo "FAIL: --cast:warn should flag cast[int](p)"; fail=1; }
+printf 'let y = int(p)\n' > "$WORK/ct.nim"
+grep -q 'cast-used' <<<"$("$NP" check --cast:warn "$WORK/ct.nim" 2>&1)" && {
+  echo "FAIL: a checked 'int(p)' must NOT be flagged cast-used"; fail=1; }
+
+# (4f18) converter-defined — OPINION (--converter:warn), default OFF.
+printf 'converter toInt(x: bool): int = 0\n' > "$WORK/cv.nim"
+grep -q 'converter-defined' <<<"$("$NP" check "$WORK/cv.nim" 2>&1)" && {
+  echo "FAIL: converter-defined must be OFF by default"; fail=1; }
+grep -q 'converter-defined' <<<"$("$NP" check --converter:warn "$WORK/cv.nim" 2>&1)" || {
+  echo "FAIL: --converter:warn should flag a converter"; fail=1; }
+printf 'proc toInt(x: bool): int = 0\n' > "$WORK/cv.nim"
+grep -q 'converter-defined' <<<"$("$NP" check --converter:warn "$WORK/cv.nim" 2>&1)" && {
+  echo "FAIL: a plain proc must NOT be flagged converter-defined"; fail=1; }
+
 # (4h) DIAGNOSTIC POSITIONING — regression guards for the fixes to imprecise spans.
 # expected-colon on a ONE-LINER points after the condition (before the statement
 # keyword), not at end-of-line; and the header/body split is handled once.

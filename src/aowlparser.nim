@@ -500,6 +500,44 @@ proc checkGrammar(toks: seq[Token]; opts: LexOptions): seq[Diagnostic] =
               message: "raising the base 'Exception' is too broad — use a specific type",
               line: toks[a].line, col: toks[a].col, endCol: toks[a].endCol,
               fix: "raise a specific exception type (e.g. ValueError)")
+  # OPINION: a BARE `except:` (no type) — catches everything, Defects included, and
+  # silently swallows bugs. `except` immediately followed by `:` is unambiguous.
+  if opts.bareExceptWarn:
+    for i in 0 ..< toks.len:
+      let t = toks[i]
+      if t.kind != tkKeyword or t.s != "except": continue
+      var n = i + 1
+      while n < toks.len and toks[n].kind == tkComment: inc n
+      if n < toks.len and toks[n].kind == tkColon:
+        result.add Diagnostic(severity: sevHint, code: "bare-except",
+          message: "a bare 'except:' catches everything, including Defects",
+          line: t.line, col: t.col, endCol: t.endCol,
+          fix: "name the exception(s) you handle, e.g. 'except CatchableError:'")
+  # OPINION: `cast[T](x)` — a reinterpreting cast that bypasses the type system. A
+  # project may want every cast audited. `cast` is a keyword; the `[` follows.
+  if opts.castWarn:
+    for i in 0 ..< toks.len:
+      let t = toks[i]
+      if t.kind != tkKeyword or t.s != "cast": continue
+      var n = i + 1
+      while n < toks.len and toks[n].kind == tkComment: inc n
+      if n < toks.len and toks[n].kind == tkBracketLe:
+        result.add Diagnostic(severity: sevHint, code: "cast-used",
+          message: "'cast' reinterprets memory unchecked — audit this conversion",
+          line: t.line, col: t.col, endCol: t.endCol,
+          fix: "prefer a checked conversion (T(x)) if the value really converts")
+  # OPINION: a `converter` definition — it installs an IMPLICIT conversion, which
+  # makes overload resolution surprising and errors harder to read. `converter` is
+  # a keyword and (like proc/func) introduces a routine, so its mere presence is
+  # the smell. Fires at the keyword.
+  if opts.converterWarn:
+    for i in 0 ..< toks.len:
+      let t = toks[i]
+      if t.kind == tkKeyword and t.s == "converter":
+        result.add Diagnostic(severity: sevHint, code: "converter-defined",
+          message: "a 'converter' adds an implicit conversion — it surprises overloading",
+          line: t.line, col: t.col, endCol: t.endCol,
+          fix: "prefer an explicit conversion proc the caller opts into")
   # `let`/`const` ALWAYS introduce a declaration, so the next significant token
   # must begin a name: an identifier, or `(` for a tuple unpack. Anything else —
   # a keyword (`let proc`), an operator, a literal, a closing bracket, EOF — is
@@ -1351,6 +1389,9 @@ proc usage() =
   write stderr, "  --debug-echo:warn    hint on a bare 'echo' statement (a debug print)\n"
   write stderr, "  --range-index:warn   hint on '0 .. n - 1' (prefer half-open '0 ..< n')\n"
   write stderr, "  --broad-exception:warn  hint on 'except Exception'/newException(Exception, …)\n"
+  write stderr, "  --bare-except:warn   hint on a bare 'except:' (catches everything)\n"
+  write stderr, "  --cast:warn          hint on 'cast[T](x)' (unchecked reinterpret)\n"
+  write stderr, "  --converter:warn     hint on a 'converter' definition (implicit conversion)\n"
   write stderr, "  --bom:MODE         leading UTF-8 BOM handling (default: legacy skip):\n"
   write stderr, "                       strip   consume a BOM without shifting line-1 columns\n"
   write stderr, "                       reject  warn/error on a leading BOM\n"
@@ -1534,6 +1575,24 @@ proc main() =
       of "warn": opts.broadExceptWarn = true
       else:
         write stderr, "unknown --broad-exception mode: " & afterColon(a) & "\n"
+        usage()
+    elif hasPrefix(a, "--bare-except:"):
+      case afterColon(a)
+      of "warn": opts.bareExceptWarn = true
+      else:
+        write stderr, "unknown --bare-except mode: " & afterColon(a) & "\n"
+        usage()
+    elif hasPrefix(a, "--cast:"):
+      case afterColon(a)
+      of "warn": opts.castWarn = true
+      else:
+        write stderr, "unknown --cast mode: " & afterColon(a) & "\n"
+        usage()
+    elif hasPrefix(a, "--converter:"):
+      case afterColon(a)
+      of "warn": opts.converterWarn = true
+      else:
+        write stderr, "unknown --converter mode: " & afterColon(a) & "\n"
         usage()
     elif hasPrefix(a, "--bom:"):
       case afterColon(a)

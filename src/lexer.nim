@@ -96,6 +96,12 @@ type
                             ## says the same without the off-by-one. Config-gated.
     broadExceptWarn*: bool  ## OPINION: flag `except Exception` / `newException(
                             ## Exception, …)` — too broad (catches Defects). Config-gated.
+    bareExceptWarn*: bool   ## OPINION: flag a bare `except:` (no type) — catches
+                            ## everything, including Defects. Config-gated.
+    castWarn*: bool         ## OPINION: flag `cast[T](x)` — an unsafe reinterpret a
+                            ## project may want to audit. Config-gated.
+    converterWarn*: bool    ## OPINION: flag a `converter` definition — implicit
+                            ## conversions surprise overload resolution. Config-gated.
 
 const
   defaultLexOptions* = LexOptions(tabPolicy: tpSpaces, tabWidth: 8, indentWidth: 0,
@@ -104,7 +110,8 @@ const
     docComments: true, cOperatorsWarn: false, semicolonWarn: false,
     idiomsWarn: false, floatEqWarn: false, nilStyleWarn: false, yodaWarn: false,
     redundantParensWarn: false, emptyStrWarn: false, echoWarn: false,
-    rangeIndexWarn: false, broadExceptWarn: false)
+    rangeIndexWarn: false, broadExceptWarn: false, bareExceptWarn: false,
+    castWarn: false, converterWarn: false)
 
 type
   Lexer = object
