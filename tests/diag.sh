@@ -103,6 +103,20 @@ for ok in 'if x == 5:' 'if f(k = v):' 'when compiles(x = 5):'; do
     echo "FAIL: '$ok' must NOT flag assignment-in-condition"; fail=1; }
 done
 
+# (4f2) comparison-in-binding — the MIRROR: '==' where '=' was meant in a
+# let/const binding ('let x == 5'). Fires on the typo, silent when '==' is a
+# real comparison in the value (after the binding '=').
+for bad in 'let x == 5' 'const C == 5' 'let x: int == 5' 'let (a, b) == p'; do
+  printf '%s\n' "$bad" > "$WORK/cb.nim"
+  grep -q 'comparison-in-binding' <<<"$("$NP" check "$WORK/cb.nim" 2>&1)" || {
+    echo "FAIL: '$bad' should flag comparison-in-binding"; fail=1; }
+done
+for ok in 'let x = a == b' 'const C = (1 == 1)' 'let ok = f(x == y)' 'let z = 1'; do
+  printf '%s\n' "$ok" > "$WORK/cb.nim"
+  grep -q 'comparison-in-binding' <<<"$("$NP" check "$WORK/cb.nim" 2>&1)" && {
+    echo "FAIL: '$ok' must NOT flag comparison-in-binding"; fail=1; }
+done
+
 # (4g) lexer-level numeric/identifier errors nifler catches (found by the
 # Nim/tests differential). Each must fire on the bad form and stay silent on the
 # valid one.

@@ -143,6 +143,35 @@ proc checkGrammar(toks: seq[Token]): seq[Diagnostic] =
           fix: "did you mean '=='?")
         break
       inc j
+  # `==` where `=` was meant in a `let`/`const` binding — the mirror of
+  # `assignment-in-condition`. `let`/`const` are always statement-level (never a
+  # type modifier, never nested in an expression), so at the keyword we are always
+  # at depth 0. The first depth-0 operator that introduces the value must be `=`;
+  # a `==` reaching that position instead compares and is always malformed. We
+  # STOP at the first depth-0 `=`, so `let x = a == b` — a real comparison in the
+  # value — is never seen, and we only look at the keyword's own line so a `let`
+  # block's later bindings aren't misattributed. Zero false positives on valid Nim.
+  for i in 0 ..< toks.len:
+    let k = toks[i]
+    if k.kind != tkKeyword or (k.s != "let" and k.s != "const"): continue
+    var depth = 0
+    var j = i + 1
+    while j < toks.len:
+      let t2 = toks[j]
+      if t2.kind == tkEof or t2.line != k.line: break     # same line only
+      if t2.kind == tkParLe or t2.kind == tkBracketLe or t2.kind == tkCurlyLe:
+        inc depth
+      elif t2.kind == tkParRi or t2.kind == tkBracketRi or t2.kind == tkCurlyRi:
+        if depth > 0: dec depth
+      elif depth == 0 and t2.kind == tkOperator and t2.s == "=":
+        break                                              # a normal binding
+      elif depth == 0 and t2.kind == tkOperator and t2.s == "==":
+        result.add Diagnostic(severity: sevError, code: "comparison-in-binding",
+          message: "'==' compares; a '" & k.s & "' binding needs '=' to assign",
+          line: t2.line, col: t2.col, endCol: t2.endCol,
+          fix: "did you mean '='?")
+        break
+      inc j
   # An EMPTY comma-separated slot — a doubled `,,` or a leading `(,`/`[,` — has
   # no expression where one is required, so nifler reports "expression expected,
   # but found ','". A TRAILING comma (`foo(a,)`, `[1,2,]`, `(1,)`) is valid Nim
