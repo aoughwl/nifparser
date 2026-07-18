@@ -536,18 +536,27 @@ proc lexNumber(lx: var Lexer): Token =
     if lx.cur == 'e' or lx.cur == 'E':
       isFloat = true
       floatText.add 'e'
+      let ecol = lx.col                # start of the 'e' for the diagnostic span
       advance lx
       if lx.cur == '+' or lx.cur == '-':
         floatText.add lx.cur
         advance lx
+      var expDigits = 0
       while true:
         if isDigit(lx.cur):
           floatText.add lx.cur
           advance lx
+          inc expDigits
         elif lx.cur == '_':
           advance lx
         else:
           break
+      if expDigits == 0:
+        # `1e`, `1.5e`, `1e+` — an exponent marker with no digits (nifler rejects it
+        # as an invalid number). Unambiguous, so flagging it is zero-FP.
+        lx.addDiag(sevError, "invalid-number",
+                   "the exponent has no digits", result.line, ecol, lx.col)
+        floatText.add '0'          # recover: '1e' -> '1e0' so the float decode is safe
 
   # raw numeric source text (with base prefix, without the `'suffix`), needed to
   # reproduce a CUSTOM numeric literal (`0xff'big` → `(dot (suf "0xff" "R") 'big)`).
@@ -583,6 +592,18 @@ proc lexNumber(lx: var Lexer): Token =
       raw.add lx.cur
       advance lx
     suffix = raw
+
+  # A letter glued directly to a number that the suffix scan did NOT consume — the
+  # C/Java/JS integer suffix habit (`100L`, `100LL`, `100n`) or a plain typo
+  # (`0xFFg`). Nim's builtin suffixes (f/F/d/D/i/I/u/U…) are consumed above, and a
+  # typed literal uses an apostrophe (`100'i64`), so any remaining glued letter is
+  # unambiguously malformed. nifler rejects it; flagging is zero-FP. (A side-channel
+  # diagnostic only — the token stream, and so the emitted AIF, is unchanged.)
+  if suffix.len == 0 and isIdentStart(lx.cur):
+    lx.addDiag(sevError, "invalid-number",
+               "a number can't be directly followed by a letter — a typed " &
+               "literal uses an apostrophe, e.g. 100'i64",
+               result.line, result.col, lx.col + 1)
 
   # ---- classify + decode -------------------------------------------------
   let sufl = suffix

@@ -403,14 +403,23 @@ declare -A badstr=(
   ['let s = """abc']=unterminated-string
   ['let s = r"abc']=unterminated-string
   ['let x = 1__0']=invalid-number
-  ['let x = 1_']=invalid-number )
+  ['let x = 1_']=invalid-number
+  ['let x = 1e']=invalid-number
+  ['let x = 1.5e']=invalid-number
+  ['let x = 1e+']=invalid-number
+  ['let x = 100L']=invalid-number
+  ['let x = 100LL']=invalid-number
+  ['let x = 100n']=invalid-number
+  ['let x = 0xFFg']=invalid-number )
 for src in "${!badstr[@]}"; do
   printf '%s\n' "$src" > "$WORK/ls.nim"
   grep -q "${badstr[$src]}" <<<"$("$NP" check "$WORK/ls.nim" 2>&1)" || {
     echo "FAIL: '$src' should report ${badstr[$src]}"; fail=1; }
 done
 for ok in 'let s = "a\nb\t\\x41é"' 'let s = "\x1B"' 'let s = "\u{1F600}"' \
-          'let s = """closed"""' 'let s = r"closed"' 'let x = 1_000_000' 'let h = 0xFF_FF'; do
+          'let s = """closed"""' 'let s = r"closed"' 'let x = 1_000_000' 'let h = 0xFF_FF' \
+          'let x = 1e10' 'let x = 1.5e-3' 'let x = 1E5' 'let x = 1.0f' "let x = 100'i64" \
+          'let x = 100u' 'let x = 0xFF'; do
   printf '%s\n' "$ok" > "$WORK/ls.nim"
   grep -qE 'invalid-escape-sequence|invalid-unicode-escape|unterminated-string|invalid-number' \
     <<<"$("$NP" check "$WORK/ls.nim" 2>&1)" && {
