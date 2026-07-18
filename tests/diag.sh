@@ -144,6 +144,23 @@ printf 'if a and b or c:\n  discard\n' > "$WORK/co.nim"
 grep -q 'c-style-operator' <<<"$("$NP" check --c-operators:warn "$WORK/co.nim" 2>&1)" && {
   echo "FAIL: valid and/or must NOT flag c-style-operator"; fail=1; }
 
+# (4f5) redundant-semicolon — OPT-IN (--semicolons:warn). A statement-level
+# trailing ';' is redundant; a ';' INSIDE (...) is a param/tuple separator and
+# must NEVER be flagged (the multi-line-proc false positive the corpus caught).
+printf 'let x = 5;\n' > "$WORK/sc.nim"
+grep -q 'redundant-semicolon' <<<"$("$NP" check "$WORK/sc.nim" 2>&1)" && {
+  echo "FAIL: redundant-semicolon must be OFF by default"; fail=1; }
+grep -q 'redundant-semicolon' <<<"$("$NP" check --semicolons:warn "$WORK/sc.nim" 2>&1)" || {
+  echo "FAIL: --semicolons:warn should flag a trailing ';'"; fail=1; }
+# param-separator ';' inside a multi-line proc signature: NEVER flagged
+printf 'proc f(a: int;\n       b: int) = discard\n' > "$WORK/sc.nim"
+grep -q 'redundant-semicolon' <<<"$("$NP" check --semicolons:warn "$WORK/sc.nim" 2>&1)" && {
+  echo "FAIL: a ';' param separator inside () must NOT be flagged"; fail=1; }
+# a ';' BETWEEN statements on one line is not trailing: not flagged
+printf 'let a = 1; let b = 2\n' > "$WORK/sc.nim"
+grep -q 'redundant-semicolon' <<<"$("$NP" check --semicolons:warn "$WORK/sc.nim" 2>&1)" && {
+  echo "FAIL: a mid-line separator ';' must NOT be flagged"; fail=1; }
+
 # (4g) lexer-level numeric/identifier errors nifler catches (found by the
 # Nim/tests differential). Each must fire on the bad form and stay silent on the
 # valid one.

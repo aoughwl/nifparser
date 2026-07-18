@@ -95,6 +95,29 @@ proc checkGrammar(toks: seq[Token]; opts: LexOptions): seq[Diagnostic] =
           message: "'" & t.s & "' is not a Nim boolean operator — use '" & word & "'",
           line: t.line, col: t.col, endCol: t.endCol,
           fix: "use '" & word & "' (mind operator precedence)")
+  # OPT-IN advisory: a redundant trailing `;`. Nim separates statements by
+  # newline; a STATEMENT-LEVEL (depth-0) `;` that is the LAST significant token on
+  # its line (ignoring a trailing comment) separates from nothing and is safely
+  # removable. Crucially we track bracket depth: a `;` INSIDE `()`/`[]`/`{}` is a
+  # parameter / generic / tuple separator (`proc f(a: int;\n b: int)`) and is NOT
+  # redundant even when it ends a line — flagging it would be a false positive. A
+  # `;` BETWEEN two statements on one line (`a; b`) is not last, so never flagged.
+  if opts.semicolonWarn:
+    var sdepth = 0
+    for si in 0 ..< toks.len:
+      let t = toks[si]
+      if t.kind == tkParLe or t.kind == tkBracketLe or t.kind == tkCurlyLe:
+        inc sdepth
+      elif t.kind == tkParRi or t.kind == tkBracketRi or t.kind == tkCurlyRi:
+        if sdepth > 0: dec sdepth
+      elif t.kind == tkSemicolon and sdepth == 0:
+        var n = si + 1
+        while n < toks.len and toks[n].kind == tkComment: inc n
+        if n >= toks.len or toks[n].kind == tkEof or toks[n].line != t.line:
+          result.add Diagnostic(severity: sevWarn, code: "redundant-semicolon",
+            message: "redundant trailing ';' — Nim separates statements by newline",
+            line: t.line, col: t.col, endCol: t.endCol,
+            fix: "remove the ';'")
   # `let`/`const` ALWAYS introduce a declaration, so the next significant token
   # must begin a name: an identifier, or `(` for a tuple unpack. Anything else —
   # a keyword (`let proc`), an operator, a literal, a closing bracket, EOF — is
@@ -445,6 +468,7 @@ proc usage() =
   write stderr, "                       newline (default off; advisory only)\n"
   write stderr, "  --c-operators:warn   warn on the C boolean operators && / || (use and/or;\n"
   write stderr, "                       default off; advisory only)\n"
+  write stderr, "  --semicolons:warn    warn on a redundant trailing ';' (default off)\n"
   write stderr, "  --bom:MODE         leading UTF-8 BOM handling (default: legacy skip):\n"
   write stderr, "                       strip   consume a BOM without shifting line-1 columns\n"
   write stderr, "                       reject  warn/error on a leading BOM\n"
@@ -568,6 +592,12 @@ proc main() =
       of "warn": opts.cOperatorsWarn = true
       else:
         write stderr, "unknown --c-operators mode: " & afterColon(a) & "\n"
+        usage()
+    elif hasPrefix(a, "--semicolons:"):
+      case afterColon(a)
+      of "warn": opts.semicolonWarn = true
+      else:
+        write stderr, "unknown --semicolons mode: " & afterColon(a) & "\n"
         usage()
     elif hasPrefix(a, "--bom:"):
       case afterColon(a)

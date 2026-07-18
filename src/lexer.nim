@@ -75,12 +75,14 @@ type
                             ## `(comment)` node; false = drop them entirely.
     cOperatorsWarn*: bool   ## advisory: warn on the C boolean operators `&&`/`||`
                             ## (Nim uses `and`/`or`); opt-in (default off).
+    semicolonWarn*: bool    ## advisory: warn on a redundant trailing `;` (Nim
+                            ## separates statements by newline); opt-in (default off).
 
 const
   defaultLexOptions* = LexOptions(tabPolicy: tpSpaces, tabWidth: 8, indentWidth: 0,
     finalNewlineRequire: false, newlinePolicy: nlAny, trailingWhitespaceWarn: false,
     bomPolicy: bomDefault, indentConsistency: false, tabStops: tsHard,
-    docComments: true, cOperatorsWarn: false)
+    docComments: true, cOperatorsWarn: false, semicolonWarn: false)
 
 type
   Lexer = object
