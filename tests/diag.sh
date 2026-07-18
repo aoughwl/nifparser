@@ -207,6 +207,21 @@ for ok in 'let mut = 5' 'let mutable = 5' 'let mut_x = 5' 'proc f(x: var int) = 
     echo "FAIL: valid '$ok' must NOT flag mut-not-a-keyword"; fail=1; }
 done
 
+# (4f3e3) go-var-notype — the Go/Java/C#/Swift 'name type' binding, missing the
+# ':'. Nim writes 'var x: int'. Must NOT flag ':'-typed, '='-init, comma-list,
+# pragma or 'var' type-modifier forms.
+for bad in 'var x int' 'let y string' 'const z float' 'var p* int'; do
+  printf '%b\n' "$bad" > "$WORK/gv.nim"
+  grep -q 'go-var-notype' <<<"$("$NP" check "$WORK/gv.nim" 2>&1)" || {
+    echo "FAIL: '$bad' should flag go-var-notype"; fail=1; }
+done
+for ok in 'var x: int' 'let y = 5' 'const z = 3.0' 'var a, b: int' 'var x* = 5' \
+          'var x {.global.}: int' 'let (a, b) = t' 'proc f(): var int = x'; do
+  printf '%b\n' "$ok" > "$WORK/gv.nim"
+  grep -q 'go-var-notype' <<<"$("$NP" check "$WORK/gv.nim" 2>&1)" && {
+    echo "FAIL: valid '$ok' must NOT flag go-var-notype"; fail=1; }
+done
+
 # (4f3f) c-brace-body — the C/Java/JS-style '{ }' block body ('proc f() { }').
 # Nim uses an indented body after '='. Must NOT flag a pragma '{.….}', a set
 # literal, or a term-rewriting template pattern ('template t{pat}(…)').

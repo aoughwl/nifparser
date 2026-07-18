@@ -268,6 +268,38 @@ proc checkGrammar(toks: seq[Token]; opts: LexOptions): seq[Diagnostic] =
           line: k.line, col: k.col, endCol: toks[j].endCol,
           fix: "use 'var' for a mutable binding (drop 'mut')")
     inc mi
+  # `var x int` — the Go/Java/C#/Swift `name type` binding, missing Nim's colon.
+  # Nim writes `var x: int`. Found via the nifler differential. `var`/`let`/`const`
+  # is a keyword (never a command callee), so a binding name followed by ANOTHER
+  # bare identifier on the same line is always malformed. Skips an optional `*`
+  # export marker (`var x* int`). A `,` (`var a, b: int`), `:`, `=`, or `{.pragma.}`
+  # after the name are all valid and never fire. The span covers the stray type so
+  # the fix can insert the `:` right after the name.
+  var gvi = 0
+  while gvi < toks.len:
+    let k = toks[gvi]
+    var isBind = k.kind == tkKeyword and
+                 (k.s == "let" or k.s == "const" or k.s == "var")
+    if isBind and k.s == "var":                   # var doubles as a type modifier
+      var p = gvi - 1
+      while p >= 0 and toks[p].kind == tkComment: dec p
+      isBind = p < 0 or toks[p].line != k.line     # only a binding at line start
+    if isBind:
+      var j = gvi + 1
+      while j < toks.len and toks[j].kind == tkComment: inc j
+      if j < toks.len and toks[j].kind == tkIdent and toks[j].line == k.line:
+        var n = j + 1                              # skip an optional `*` export
+        while n < toks.len and toks[n].kind == tkComment: inc n
+        if n < toks.len and toks[n].kind == tkOperator and toks[n].s == "*":
+          inc n
+          while n < toks.len and toks[n].kind == tkComment: inc n
+        if n < toks.len and toks[n].kind == tkIdent and toks[n].line == k.line:
+          result.add Diagnostic(severity: sevError, code: "go-var-notype",
+            message: "a typed binding needs a ':' — write '" & toks[j].s & ": " &
+                     toks[n].s & "'",
+            line: toks[n].line, col: toks[n].col, endCol: toks[n].endCol,
+            fix: "insert ':' after the name (Nim is 'var name: Type')")
+    inc gvi
   # A bare `end` — the Ruby/Pascal/Lua block terminator. `end` is a reserved Nim
   # keyword with no statement form, so an `end` that is the FIRST significant token
   # on its line is always malformed; Nim delimits blocks by indentation.
