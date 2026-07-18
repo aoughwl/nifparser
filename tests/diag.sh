@@ -270,6 +270,34 @@ for ok in 'type Foo = object' 'let class = 5' 'echo struct(x)' 'var impl = f()' 
     echo "FAIL: valid '$ok' must NOT flag foreign-block-keyword"; fail=1; }
 done
 
+# (4f3i) foreign-case-block — a C/Java/Rust/Scala 'switch'/'match' with a brace
+# body. Nim's is 'case <expr>:' with 'of' branches. Must NOT flag a variable/call.
+for bad in 'switch (x) {\n  discard\n}' 'switch x {\n  discard\n}' \
+           'match x {\n  discard\n}' 'match (x) {\n  discard\n}'; do
+  printf '%b\n' "$bad" > "$WORK/fc.nim"
+  grep -q 'foreign-case-block' <<<"$("$NP" check "$WORK/fc.nim" 2>&1)" || {
+    echo "FAIL: '$(echo "$bad"|head -1)' should flag foreign-case-block"; fail=1; }
+done
+for ok in 'let switch = 5' 'echo match(x)' 'result = switch and y'; do
+  printf '%b\n' "$ok" > "$WORK/fc.nim"
+  grep -q 'foreign-case-block' <<<"$("$NP" check "$WORK/fc.nim" 2>&1)" && {
+    echo "FAIL: valid '$ok' must NOT flag foreign-case-block"; fail=1; }
+done
+
+# (4f3j) do-while-loop ('do { } while') + ruby-block-params ('do |x|'). 'do' is a
+# Nim keyword; 'do (x):' block params and a bare 'do:' must stay clean.
+printf 'do {\n  discard\n} while (x)\n' > "$WORK/dw.nim"
+grep -q 'do-while-loop' <<<"$("$NP" check "$WORK/dw.nim" 2>&1)" || {
+  echo "FAIL: 'do { } while' should flag do-while-loop"; fail=1; }
+printf 'xs.each do |i|\n  discard\n' > "$WORK/dw.nim"
+grep -q 'ruby-block-params' <<<"$("$NP" check "$WORK/dw.nim" 2>&1)" || {
+  echo "FAIL: 'do |i|' should flag ruby-block-params"; fail=1; }
+for ok in 'xs.map do (i: int):\n  echo i' 'proc f() =\n  do:\n    echo 1'; do
+  printf '%b\n' "$ok" > "$WORK/dw.nim"
+  grep -qE 'do-while-loop|ruby-block-params' <<<"$("$NP" check "$WORK/dw.nim" 2>&1)" && {
+    echo "FAIL: valid '$(echo "$ok"|head -1)' must NOT flag a do-block habit"; fail=1; }
+done
+
 # (4f4) c-style-operator — OPT-IN only (--c-operators:warn). '&&'/'||' are Nim's
 # 'and'/'or'. Off by default (they are definable operators); on, they warn but
 # never touch a real 'and'/'or'.

@@ -494,6 +494,73 @@ proc checkGrammar(toks: seq[Token]; opts: LexOptions): seq[Diagnostic] =
           elif t2.kind == tkCurlyRi and depth > 0: dec depth
           inc m
     inc fbi
+  # `switch (x) { … }` / `match x { … }` — a C/Java/Rust/Scala switch/match with a
+  # brace body. Nim's is `case <expr>:` with indented `of` branches. `switch`/`match`
+  # are valid identifiers, so we demand the block shape (word first on its line, a
+  # depth-0 `{` that ENDS its line), as with foreign-block-keyword above.
+  const foreignCaseKw = ["switch", "match"]
+  var fci = 0
+  while fci < toks.len:
+    let k = toks[fci]
+    var isFck = false
+    if k.kind == tkIdent:
+      for ck in foreignCaseKw:
+        if k.s == ck: isFck = true
+    if isFck:
+      var p = fci - 1
+      while p >= 0 and toks[p].kind == tkComment: dec p
+      if p < 0 or toks[p].line != k.line:
+        var depth = 0
+        var m = fci + 1
+        while m < toks.len:
+          let t2 = toks[m]
+          if t2.kind == tkEof or t2.line != k.line: break
+          if t2.kind == tkParLe or t2.kind == tkBracketLe: inc depth
+          elif t2.kind == tkParRi or t2.kind == tkBracketRi:
+            if depth > 0: dec depth
+          elif depth == 0 and t2.kind == tkOperator and t2.s == "=": break
+          elif t2.kind == tkCurlyLe and depth == 0:
+            var q = m + 1
+            while q < toks.len and toks[q].kind == tkComment: inc q
+            let lastOnLine = q >= toks.len or toks[q].kind == tkEof or
+                             toks[q].line != k.line
+            let nextIsDot = m + 1 < toks.len and toks[m + 1].kind == tkDot
+            if lastOnLine and not nextIsDot:
+              result.add Diagnostic(severity: sevError, code: "foreign-case-block",
+                message: "'" & k.s & "' is not a Nim keyword — use 'case <expr>:' " &
+                         "with indented 'of' branches",
+                line: k.line, col: k.col, endCol: k.endCol,
+                fix: "use 'case <expr>:' and 'of' branches (Nim has no '" & k.s & "')")
+            break
+          elif t2.kind == tkCurlyLe: inc depth
+          elif t2.kind == tkCurlyRi and depth > 0: dec depth
+          inc m
+    inc fci
+  # `do { … } while` (a C/JS do-while) and `do |x|` (Ruby block params). `do` is a
+  # Nim keyword — do-notation is `do (args): body` — so `do` immediately followed by
+  # `{` (and not a `{.pragma.}`) is a C do-while, and `do |` is a Ruby block. Both
+  # are always malformed: after `do` only `(`, `:`, `->` or a pragma can follow.
+  var doi = 0
+  while doi < toks.len:
+    let t = toks[doi]
+    if t.kind == tkKeyword and t.s == "do":
+      var j = doi + 1
+      while j < toks.len and toks[j].kind == tkComment: inc j
+      if j < toks.len and toks[j].line == t.line:
+        let nx = toks[j]
+        let nextIsDot = j + 1 < toks.len and toks[j + 1].kind == tkDot
+        if nx.kind == tkCurlyLe and not nextIsDot:
+          result.add Diagnostic(severity: sevError, code: "do-while-loop",
+            message: "Nim has no 'do { }' loop — use 'while <cond>:'",
+            line: t.line, col: t.col, endCol: t.endCol,
+            fix: "use 'while <cond>:'; for a do-while, 'while true:' then " &
+                 "'if not <cond>: break'")
+        elif nx.kind == tkOperator and nx.s == "|":
+          result.add Diagnostic(severity: sevError, code: "ruby-block-params",
+            message: "Nim block params are 'do (x):' not the Ruby 'do |x|'",
+            line: t.line, col: t.col, endCol: t.endCol,
+            fix: "write the block as 'do (x): <body>'")
+    inc doi
   # `->` as a return-type arrow (`proc f() -> int`, a Rust/Python-3/C++ habit).
   # Nim writes the return type after a colon: `proc f(): int`. Found via the nifler
   # differential. Delicate: `->` is ALSO the std/sugar lambda-type operator
