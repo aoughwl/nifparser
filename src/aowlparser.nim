@@ -230,6 +230,19 @@ proc checkGrammar(toks: seq[Token]; opts: LexOptions): seq[Diagnostic] =
           fix: "did you mean '='?")
         break
       inc j
+  # `::` — the C++ scope-resolution habit (`std::vector`). Nim qualifies with `.`.
+  # `:` is an operator char, so `::` lexes as a single OPERATOR token (never a
+  # colon), and it is never a valid Nim operator (nifler rejects it). A `::` inside
+  # a string/comment is part of THAT token, not an operator, so IPv6 `"::"` and doc
+  # examples are never touched. Suggestion, not auto-fix: the repair is `.`
+  # (qualify) or `:` (a mistyped annotation) — the author's call.
+  for cci in 0 ..< toks.len:
+    let t = toks[cci]
+    if t.kind == tkOperator and t.s == "::":
+      result.add Diagnostic(severity: sevError, code: "double-colon",
+        message: "'::' is not valid Nim — use '.' to qualify (a.b), or a single ':'",
+        line: t.line, col: t.col, endCol: t.endCol,
+        fix: "use '.' to qualify (std.vector) or ':' for a type annotation")
   # `->` as a return-type arrow (`proc f() -> int`, a Rust/Python-3/C++ habit).
   # Nim writes the return type after a colon: `proc f(): int`. Found via the nifler
   # differential. Delicate: `->` is ALSO the std/sugar lambda-type operator

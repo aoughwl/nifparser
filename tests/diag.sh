@@ -159,6 +159,18 @@ for ok in 'proc f(): int = 1' 'let f = (x: int) -> x + 1' 'proc f(): (int) -> in
     echo "FAIL: valid '->' use must NOT flag arrow-return-type ($ok)"; fail=1; }
 done
 
+# (4f3c) double-colon — the C++ scope-resolution habit ('std::vector'). Nim
+# qualifies with '.'. '::' lexes as one operator; a '::' inside a string (IPv6
+# "::1", doc "a::b") is part of the string token and must stay clean.
+printf 'let v = std::vector\n' > "$WORK/dc.nim"
+grep -q 'double-colon' <<<"$("$NP" check "$WORK/dc.nim" 2>&1)" || {
+  echo "FAIL: 'std::vector' should flag double-colon"; fail=1; }
+for ok in 'let ip = "::1"' 'let s = "a::b"' 'let x: int = 5' 'proc f(): int = 1'; do
+  printf '%b\n' "$ok" > "$WORK/dc.nim"
+  grep -q 'double-colon' <<<"$("$NP" check "$WORK/dc.nim" 2>&1)" && {
+    echo "FAIL: '$ok' must NOT flag double-colon"; fail=1; }
+done
+
 # (4f4) c-style-operator — OPT-IN only (--c-operators:warn). '&&'/'||' are Nim's
 # 'and'/'or'. Off by default (they are definable operators); on, they warn but
 # never touch a real 'and'/'or'.
