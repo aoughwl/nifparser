@@ -229,6 +229,101 @@ proc checkGrammar(toks: seq[Token]; opts: LexOptions): seq[Diagnostic] =
                      want & "'",
             line: n1.line, col: n1.col, endCol: toks[af].endCol,
             fix: "use '" & want & "' (or parenthesize: 'not (x " & toks[af].s & " y)')")
+     # `if cond: return true else: return false` — the simplify-boolean-return
+     # smell (return/assign the condition directly). Structural: fires ONLY on the
+     # exact two-branch shape where each branch is a SINGLE `return <bool>` (or
+     # `result = <bool>`) of the SAME kind with OPPOSITE bools. Statement-level
+     # `if` only (indent >= 0, so `let x = if …` is skipped), `else` must dedent to
+     # the `if`'s own column, and the else body must not continue — so any richer
+     # branch is never matched. Every match is genuinely simplifiable → zero FP.
+     for i in 0 ..< toks.len:
+      let kw = toks[i]
+      if kw.kind != tkKeyword or kw.s != "if": continue
+      if kw.indent < 0: continue
+      # condition → first depth-0 ':'
+      var depth = 0
+      var colon1 = -1
+      var j = i + 1
+      while j < toks.len:
+        let t = toks[j]
+        if t.kind == tkEof: break
+        if t.kind == tkParLe or t.kind == tkBracketLe or t.kind == tkCurlyLe: inc depth
+        elif t.kind == tkParRi or t.kind == tkBracketRi or t.kind == tkCurlyRi:
+          if depth > 0: dec depth
+        elif depth == 0 and t.kind == tkColon: colon1 = j; break
+        inc j
+      if colon1 < 0 or colon1 == i + 1: continue
+      # then branch: `return <bool>` or `result = <bool>`
+      var p = colon1 + 1
+      while p < toks.len and toks[p].kind == tkComment: inc p
+      if p >= toks.len: continue
+      var thenKind = ""
+      var thenBool = ""
+      var afterThen = -1
+      if toks[p].kind == tkKeyword and toks[p].s == "return":
+        var q = p + 1
+        while q < toks.len and toks[q].kind == tkComment: inc q
+        if q < toks.len and toks[q].kind == tkIdent and
+           (toks[q].s == "true" or toks[q].s == "false"):
+          thenKind = "return"; thenBool = toks[q].s; afterThen = q + 1
+      elif toks[p].kind == tkIdent and toks[p].s == "result":
+        var q = p + 1
+        while q < toks.len and toks[q].kind == tkComment: inc q
+        if q < toks.len and toks[q].kind == tkOperator and toks[q].s == "=":
+          var r = q + 1
+          while r < toks.len and toks[r].kind == tkComment: inc r
+          if r < toks.len and toks[r].kind == tkIdent and
+             (toks[r].s == "true" or toks[r].s == "false"):
+            thenKind = "result"; thenBool = toks[r].s; afterThen = r + 1
+      if thenKind.len == 0: continue
+      # the then body must end immediately at `else` (at the if's own column)
+      var e = afterThen
+      while e < toks.len and toks[e].kind == tkComment: inc e
+      if e >= toks.len or toks[e].kind != tkKeyword or toks[e].s != "else": continue
+      if toks[e].indent != kw.indent: continue
+      var ec = e + 1
+      while ec < toks.len and toks[ec].kind == tkComment: inc ec
+      if ec >= toks.len or toks[ec].kind != tkColon: continue
+      # else branch: same kind, a bool
+      var ep = ec + 1
+      while ep < toks.len and toks[ep].kind == tkComment: inc ep
+      if ep >= toks.len: continue
+      var elseKind = ""
+      var elseBool = ""
+      var afterElse = -1
+      if toks[ep].kind == tkKeyword and toks[ep].s == "return":
+        var q = ep + 1
+        while q < toks.len and toks[q].kind == tkComment: inc q
+        if q < toks.len and toks[q].kind == tkIdent and
+           (toks[q].s == "true" or toks[q].s == "false"):
+          elseKind = "return"; elseBool = toks[q].s; afterElse = q + 1
+      elif toks[ep].kind == tkIdent and toks[ep].s == "result":
+        var q = ep + 1
+        while q < toks.len and toks[q].kind == tkComment: inc q
+        if q < toks.len and toks[q].kind == tkOperator and toks[q].s == "=":
+          var r = q + 1
+          while r < toks.len and toks[r].kind == tkComment: inc r
+          if r < toks.len and toks[r].kind == tkIdent and
+             (toks[r].s == "true" or toks[r].s == "false"):
+            elseKind = "result"; elseBool = toks[r].s; afterElse = r + 1
+      if elseKind.len == 0 or elseKind != thenKind: continue
+      if thenBool == elseBool: continue            # opposite bools only
+      # the else body must END here: next significant token is EOF, or a
+      # first-on-line token that dedents to <= the if's column (not a 2nd stmt,
+      # not a same-line continuation).
+      var af2 = afterElse
+      while af2 < toks.len and toks[af2].kind == tkComment: inc af2
+      if af2 < toks.len and toks[af2].kind != tkEof:
+        if toks[af2].indent < 0 or toks[af2].indent > kw.indent: continue
+      let lead = if thenKind == "result": "result = " else: "return "
+      let advice =
+        if thenBool == "true": "replace the whole if/else with '" & lead & "<condition>'"
+        else: "replace the whole if/else with '" & lead & "not (<condition>)'"
+      result.add Diagnostic(severity: sevHint, code: "simplify-boolean-return",
+        message: "this 'if …: " & thenKind & " " & thenBool & " else: " & thenKind &
+                 " " & elseBool & "' just returns the condition — " & lead & "it directly",
+        line: kw.line, col: kw.col, endCol: kw.endCol,
+        fix: advice)
   # `let`/`const` ALWAYS introduce a declaration, so the next significant token
   # must begin a name: an identifier, or `(` for a tuple unpack. Anything else —
   # a keyword (`let proc`), an operator, a literal, a closing bracket, EOF — is

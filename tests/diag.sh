@@ -454,6 +454,29 @@ for ok in 'let a = not (x == y)' 'let a = x != y' 'let a = not p and q == r'; do
     echo "FAIL: correct form '$ok' must NOT be flagged"; fail=1; }
 done
 
+# (4f7d) simplify-boolean-return — OPT-IN (--idioms:warn). `if c: return true
+# else: return false` (and the result=/swap/inline variants) returns the condition.
+printf 'proc f(c: bool): bool =\n  if c:\n    return true\n  else:\n    return false\n' > "$WORK/sb.nim"
+grep -q 'simplify-boolean-return' <<<"$("$NP" check "$WORK/sb.nim" 2>&1)" && {
+  echo "FAIL: simplify-boolean-return must be OFF by default"; fail=1; }
+for src in 'proc f(c: bool): bool =\n  if c:\n    return true\n  else:\n    return false' \
+           'proc f(c: bool): bool =\n  if c: return false\n  else: return true' \
+           'proc f(c: bool): bool =\n  if c:\n    result = true\n  else:\n    result = false'; do
+  printf "$src\n" > "$WORK/sb.nim"
+  grep -q 'simplify-boolean-return' <<<"$("$NP" check --idioms:warn "$WORK/sb.nim" 2>&1)" || {
+    echo "FAIL: --idioms:warn should flag boolean-return '$src'"; fail=1; }
+done
+# must NOT fire: same bool, expr-if, elif chain, richer branch, mixed kind
+for ok in 'proc f(c: bool): bool =\n  if c:\n    return true\n  else:\n    return true' \
+          'let x = if c: true else: false' \
+          'proc f(c: bool): bool =\n  if c:\n    return true\n  elif d:\n    return false\n  else:\n    return true' \
+          'proc f(c: bool): bool =\n  if c:\n    echo 1\n    return true\n  else:\n    return false' \
+          'proc f(c: bool): bool =\n  if c:\n    result = true\n  else:\n    return false'; do
+  printf "$ok\n" > "$WORK/sb.nim"
+  grep -q 'simplify-boolean-return' <<<"$("$NP" check --idioms:warn "$WORK/sb.nim" 2>&1)" && {
+    echo "FAIL: '$ok' must NOT be flagged as simplify-boolean-return"; fail=1; }
+done
+
 # (4f8) float-equality — OPT-IN, own flag (--float-equality:warn), also in pedantic.
 printf 'let z = x == 3.14\n' > "$WORK/fe.nim"
 grep -q 'float-equality' <<<"$("$NP" check "$WORK/fe.nim" 2>&1)" && {
