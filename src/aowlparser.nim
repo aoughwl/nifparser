@@ -230,6 +230,46 @@ proc checkGrammar(toks: seq[Token]; opts: LexOptions): seq[Diagnostic] =
           fix: "did you mean '='?")
         break
       inc j
+  # `->` as a return-type arrow (`proc f() -> int`, a Rust/Python-3/C++ habit).
+  # Nim writes the return type after a colon: `proc f(): int`. Found via the nifler
+  # differential. Delicate: `->` is ALSO the std/sugar lambda-type operator
+  # (`(int) -> int`), so we flag it ONLY at depth 0 in a ROUTINE HEADER — after a
+  # routine keyword, before the header's own `:` (return type) or `=` (body). A
+  # `->` in a return TYPE (`proc f(): (int) -> int`) sits after that `:` and is
+  # never reached; a `->` defined/used as an operator (`macro \`->\``, a lambda in
+  # a body) is not at header depth-0 either. Restricted to the keyword's own line
+  # so a multi-line body can't be misread.
+  const routineKw = ["proc", "func", "method", "iterator", "converter",
+                     "template", "macro"]
+  var ai = 0
+  while ai < toks.len:
+    let k = toks[ai]
+    var isRoutine = false
+    if k.kind == tkKeyword:
+      for rk in routineKw:
+        if k.s == rk: isRoutine = true
+    if isRoutine:
+      var depth = 0
+      var j = ai + 1
+      while j < toks.len:
+        let t2 = toks[j]
+        if t2.kind == tkEof or t2.line != k.line: break     # header on its line
+        if t2.kind == tkParLe or t2.kind == tkBracketLe or t2.kind == tkCurlyLe:
+          inc depth
+        elif t2.kind == tkParRi or t2.kind == tkBracketRi or t2.kind == tkCurlyRi:
+          if depth > 0: dec depth
+        elif depth == 0 and t2.kind == tkColon:
+          break                                             # valid return-type ':'
+        elif depth == 0 and t2.kind == tkOperator and t2.s == "=":
+          break                                             # body starts
+        elif depth == 0 and t2.kind == tkOperator and t2.s == "->":
+          result.add Diagnostic(severity: sevError, code: "arrow-return-type",
+            message: "'->' is not a Nim return type — write the type after ':'",
+            line: t2.line, col: t2.col, endCol: t2.endCol,
+            fix: "write the return type after ':' — proc f(): T")
+          break
+        inc j
+    inc ai
   # `else if` is not Nim — `else` must be followed by `:`, and the condition-chain
   # keyword is `elif`. Two ADJACENT keyword tokens `else` then `if` on the same
   # line are always this C/Python habit, never valid Nim: a real `else:` block that

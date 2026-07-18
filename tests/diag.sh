@@ -146,6 +146,19 @@ for ok in 'else:\n  if b:\n    discard' 'elif b:\n  discard' 'else:\n  discard';
     echo "FAIL: valid else/elif must NOT flag else-if-not-elif ($ok)"; fail=1; }
 done
 
+# (4f3b) arrow-return-type — the Rust/Python-3/C++ '->' return arrow
+# ('proc f() -> int'). Found via the nifler differential. Flagged ONLY in a
+# routine header; the std/sugar lambda operator '(x) -> y' and a proc returning a
+# lambda type ('proc f(): (int) -> int') must stay clean.
+printf 'proc g() -> int = 2\n' > "$WORK/ar.nim"
+grep -q 'arrow-return-type' <<<"$("$NP" check "$WORK/ar.nim" 2>&1)" || {
+  echo "FAIL: 'proc g() -> int' should flag arrow-return-type"; fail=1; }
+for ok in 'proc f(): int = 1' 'let f = (x: int) -> x + 1' 'proc f(): (int) -> int = nil'; do
+  printf 'import std/sugar\n%b\n' "$ok" > "$WORK/ar.nim"
+  grep -q 'arrow-return-type' <<<"$("$NP" check "$WORK/ar.nim" 2>&1)" && {
+    echo "FAIL: valid '->' use must NOT flag arrow-return-type ($ok)"; fail=1; }
+done
+
 # (4f4) c-style-operator — OPT-IN only (--c-operators:warn). '&&'/'||' are Nim's
 # 'and'/'or'. Off by default (they are definable operators); on, they warn but
 # never touch a real 'and'/'or'.
