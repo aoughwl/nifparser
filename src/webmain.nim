@@ -34,19 +34,67 @@ import tokens, lexer, parser   # lexer exports tokenize + gLexDiags; parser expo
 import checks                  # shared, byte-faithful copy of the CLI check surface
 import jsffi
 
-proc parseToStr(src, fileField: string; curly: bool; diagJson: var string): string =
+# --- opinion-lint style flags ------------------------------------------------
+# The playground's Config panel lets the user turn on aowlparser's config-gated
+# OPINION lints (nil-comparison, yoda, cast, addr, …) — the same set the CLI
+# enables with `--style:<rule>:warn`. They arrive here as a comma-separated list
+# of rule keys parked on `globalThis.__np_style` (empty = all off, the default,
+# so behaviour is unchanged unless the user opts in). Each key flips its flag on
+# a copy of `defaultLexOptions`; that copy drives BOTH tokenize and checkGrammar
+# so the lints show up as diagnostics in the SAME stream as the syntax errors —
+# which is exactly what the live squiggles and aowlsuggest quick-fixes consume.
+proc applyStyleKey(o: var LexOptions; key: string) =
+  case key
+  of "trailing": o.trailingWhitespaceWarn = true
+  of "coperators": o.cOperatorsWarn = true
+  of "semicolon": o.semicolonWarn = true
+  of "idioms": o.idiomsWarn = true
+  of "floateq": o.floatEqWarn = true
+  of "nil": o.nilStyleWarn = true
+  of "yoda": o.yodaWarn = true
+  of "parens": o.redundantParensWarn = true
+  of "emptystr": o.emptyStrWarn = true
+  of "echo": o.echoWarn = true
+  of "range": o.rangeIndexWarn = true
+  of "broadexcept": o.broadExceptWarn = true
+  of "bareexcept": o.bareExceptWarn = true
+  of "cast": o.castWarn = true
+  of "converter": o.converterWarn = true
+  of "addr": o.addrWarn = true
+  of "asm": o.asmWarn = true
+  of "all":
+    o.cOperatorsWarn = true; o.semicolonWarn = true; o.idiomsWarn = true
+    o.floatEqWarn = true; o.nilStyleWarn = true; o.yodaWarn = true
+    o.redundantParensWarn = true; o.emptyStrWarn = true; o.echoWarn = true
+    o.rangeIndexWarn = true; o.broadExceptWarn = true; o.bareExceptWarn = true
+    o.castWarn = true; o.converterWarn = true; o.addrWarn = true; o.asmWarn = true
+  else: discard
+
+proc optsFromStyle(style: string): LexOptions =
+  result = defaultLexOptions
+  var cur = ""
+  for i in 0 ..< style.len:
+    let c = style[i]
+    if c == ',' or c == ' ' or c == ';':
+      if cur.len > 0: applyStyleKey(result, cur); cur = ""
+    else:
+      cur.add c
+  if cur.len > 0: applyStyleKey(result, cur)
+
+proc parseToStr(src, fileField: string; curly: bool; opts: LexOptions;
+                diagJson: var string): string =
   ## Parse Nim source text from memory to the `.p.aif` byte string, and set
   ## `diagJson` to the JSON array of RECOVERABLE structured diagnostics — the
   ## exact set `aowlparser check --diagnostics:json` emits. Parsing is never
   ## aborted by them, so an editor gets every problem at once. `curly` enables
-  ## the experimental `{ … }` block mode.
+  ## the experimental `{ … }` block mode. `opts` carries any opt-in opinion lints.
   var errors = 0
-  let toks = tokenize(src, defaultLexOptions, errors)
+  let toks = tokenize(src, opts, errors)
   # lexer diagnostics (unknown bytes, unterminated literals, style/portability)
   var diags = gLexDiags
   # structural + grammar validators over the token stream
   for d in checkBrackets(toks): diags.add d
-  for d in checkGrammar(toks): diags.add d
+  for d in checkGrammar(toks, opts): diags.add d
   # parse (in-memory builder); the parser records grammar errors at each coping
   # point into ps.diags as it goes.
   var ps = initParser(toks, fileField, curly)
@@ -74,9 +122,11 @@ proc npRun() =
   # 2b. read the experimental curly-block toggle: a non-empty string ("1") means
   #     accept `{ … }` block bodies; empty/absent means classic indent-only.
   let curly = global("__np_curly").toStr.len != 0
+  # 2c. read the opt-in opinion-lint style keys (comma-separated; empty = none).
+  let opts = optsFromStyle(global("__np_style").toStr)
   # 3. parse fully in memory (also collects syntactic diagnostics)
   var diagJson = ""
-  let outp = parseToStr(src, fileField, curly, diagJson)
+  let outp = parseToStr(src, fileField, curly, opts, diagJson)
   # 4. return the produced .p.aif bytes + diagnostics JSON to JS
   let g = global("globalThis")
   g.set("__np_out", toJs(outp))

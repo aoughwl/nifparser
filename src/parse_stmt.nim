@@ -1,25 +1,25 @@
-## parse_stmt.nim — STATEMENTS, CONTROL FLOW, var/let/const SECTIONS.
+## parse_stmt.nim - STATEMENTS, CONTROL FLOW, var/let/const SECTIONS.
 ##
 ## Spliced LAST (after parse_expr.nim and parse_type.nim), so it can call
 ## `parseExprRange`, `parseType`, `parseRoutine` directly. `parseStmt` is the
-## dispatch entry (forward-declared in parsecore.nim) — routine bodies and the
+## dispatch entry (forward-declared in parsecore.nim) - routine bodies and the
 ## module loop re-enter through it.
 ##
 ## Covers: expr/command/assignment statements; return-like (ret/discard/raise/
 ## yld) and import-like forms; the control-flow keywords `if`/`elif`/`else`,
-## `case`+`(of (ranges …) …)`, `while`, `for`+`(unpackflat …)` / `(unpacktup …)`,
+## `case`+`(of (ranges ...) ...)`, `while`, `for`+`(unpackflat ...)` / `(unpacktup ...)`,
 ## `try`/`except`/`fin`, `when`, `block`/`break`/`continue`, `defer`, `static`;
-## and var/let/const SECTIONS, which emit NO wrapper node — each ident-def is its
+## and var/let/const SECTIONS, which emit NO wrapper node - each ident-def is its
 ## own sibling with the type & value DUPLICATED across a multi-name group
 ## (`(var name . pragma type value)`), plus the var-tuple form
-## `(unpackdecl value (unpacktup (let …)…))`. Indentation-delimited blocks
+## `(unpackdecl value (unpacktup (let ...)...))`. Indentation-delimited blocks
 ## threshold on `ps.tok(i).indent` (see `emitBody`).
 
 proc parseCommand(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32;
                   singleArg = false) =
   # STATEMENT-context command (`parseExprStmt` → `newTree(nkCommand, a.info, a)`):
   # nkCommand.info = the CALLEE expression's info. For a dotted callee `a.b` that
-  # is the `.` position, not the head ident — so anchor at the callee's emitted
+  # is the `.` position, not the head ident - so anchor at the callee's emitted
   # node, not `tok(lo)`. (Expr-context commands anchor at the first arg instead.)
   let ce = ps.cmdCalleeEnd(int(lo), int(hi))   # end of the callee primary
   let anchor = ps.calleeAnchor(int(lo), ce)
@@ -49,7 +49,7 @@ proc parseExprStmt(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32): int =
   # A command callee is a bare ident, or the `addr` keyword in its space form
   # (`addr x`; `addr(x)` is a call, and cmdCalleeEnd already folds the adjacent
   # paren into the callee so `ce == hi` there). Routing a keyword command through
-  # parseCommand — not parseCmdKw — gives it the STATEMENT-context callee anchor
+  # parseCommand - not parseCmdKw - gives it the STATEMENT-context callee anchor
   # (nifler's `newTree(nkCommand, a.info)`), not the expr-context first-arg anchor.
   let calleeOk = head.kind == tkIdent or
                  (head.kind == tkKeyword and head.s == "addr")
@@ -113,7 +113,7 @@ proc parseReturnLike(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32;
   b.addTree tag
   ps.emitInfo(b, kw.line, kw.col, pl, pc, false)
   if kwIdx + 1 < hi and startsExpr(ps.tok(kwIdx+1)):
-    # a postExprBlock value (`return quote: toJs(x)` / `yield foo: body`) — a
+    # a postExprBlock value (`return quote: toJs(x)` / `yield foo: body`) - a
     # depth-0 `:` makes the value a `(call callee (stmts body))`, not a `kv`.
     let v0 = ps.tok(kwIdx + 1)
     let ctrlVal = v0.kind == tkKeyword and
@@ -132,7 +132,7 @@ proc parseReturnLike(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32;
   result = hi
 
 proc parseAsm(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32): int =
-  ## `asm [{.pragmas.}] "code"` → `(asm <pragmas-or-.> (suf "code" …))`.
+  ## `asm [{.pragmas.}] "code"` → `(asm <pragmas-or-.> (suf "code" ...))`.
   let kw = ps.tok(kwIdx)
   let hi = ps.lineEnd(kwIdx)
   b.addTree "asm"
@@ -213,8 +213,8 @@ proc skipTrailingDoc(ps: Parser; i, refIndent: int): int =
 
 proc findColon(ps: Parser; lo, hi: int): int =
   ## Body introducer in `[lo, hi)`: a depth-0 `:`. In curly mode, also a depth-0
-  ## `{ … }` block — the first `{` (not a `{.` pragma) that follows an operand,
-  ## so a set literal in the head (`if {1} == x { … }`) is not mistaken for it.
+  ## `{ ... }` block - the first `{` (not a `{.` pragma) that follows an operand,
+  ## so a set literal in the head (`if {1} == x { ... }`) is not mistaken for it.
   ## `:` always wins if present. Returns the `:`/`{` index, or -1.
   var depth = 0
   var i = lo
@@ -239,12 +239,12 @@ proc findColon(ps: Parser; lo, hi: int): int =
   result = brace
 
 proc emitBody(ps: var Parser; b: var Builder; colonIdx: int; refIndent: int32;
-              pl, pc: int32): int =
-  ## Emit a `(stmts …)` body after a `:`. Handles both the one-line form
+              pl, pc: int32; hdrIndent: int32 = -1): int =
+  ## Emit a `(stmts ...)` body after a `:`. Handles both the one-line form
   ## (`if c: stmt`) and the indented block (mirrors parseRoutine's body loop).
   ## `pl,pc` = the controlling branch node position (parent of the stmts node).
   if colonIdx < 0:
-    # No body-introducing `:` found — the construct is malformed (`if c` with no
+    # No body-introducing `:` found - the construct is malformed (`if c` with no
     # colon, `while x`, a bare `try`). EVERY statement control-flow form funnels
     # its body through here, so this one site reports them all. Emit an empty body
     # and do NOT restart at token 0.
@@ -254,7 +254,7 @@ proc emitBody(ps: var Parser; b: var Builder; colonIdx: int; refIndent: int32;
     b.addTree "stmts"; b.addEmpty; b.endTree()
     return colonIdx     # caller advances past this construct via its own lineEnd
   if ps.tok(colonIdx).kind == tkCurlyLe:
-    # curly-block body: `… { stmt; stmt }`. Delimited by the matching `}`;
+    # curly-block body: `... { stmt; stmt }`. Delimited by the matching `}`;
     # statements inside are `;`- or newline-separated (parseStmt chains `;`).
     let rb = ps.matchClose(colonIdx)
     let first = ps.tok(colonIdx + 1)
@@ -275,7 +275,7 @@ proc emitBody(ps: var Parser; b: var Builder; colonIdx: int; refIndent: int32;
     discard
   elif first.indent < 0:
     # one-liner: statements on the same logical line, but STOP at a same-line
-    # branch keyword (`if c: a else: b`, `case`/`try`/… one-liners) so the next
+    # branch keyword (`if c: a else: b`, `case`/`try`/... one-liners) so the next
     # branch is not swallowed into this body.
     var hi = ps.lineEnd(bodyStart)
     block:
@@ -292,7 +292,7 @@ proc emitBody(ps: var Parser; b: var Builder; colonIdx: int; refIndent: int32;
           hi = k; break
         inc k
     # A mid-line body whose line ENDS in a block-introducing `:` (`X: quote do:`
-    # / `foo:`) has its own body on the following deeper-indented lines — it is
+    # / `foo:`) has its own body on the following deeper-indented lines - it is
     # NOT a true one-liner. Extend the bound over that continuation so the nested
     # colon-block statement is parsed whole (else its body leaks out as siblings).
     if hi > bodyStart and ps.tok(hi - 1).kind == tkColon:
@@ -302,15 +302,25 @@ proc emitBody(ps: var Parser; b: var Builder; colonIdx: int; refIndent: int32;
     while i < hi and ps.tok(i).kind != tkEof:
       i = ps.parseStmt(b, i, first.line, first.col, hi)
   else:
-    # indented block: statements at the body's own indentation (`first.indent`)
-    # or deeper. Thresholding on the body indent — not the caller's `refIndent`
-    # (the keyword column) — makes value-context bodies work too, e.g. the body
-    # of `let x = try:` sits mid-line so its keyword column is not its indent.
+    # A block body on a new line MUST be indented deeper than the STATEMENT line
+    # that introduces it (the off-side rule). If it is not, the body was forgotten
+    # or misindented (`if c:⏎x` - `x` is a sibling, not a body), which nifler
+    # reports as "invalid indentation". `hdrIndent` is the caller's real
+    # statement-line indent (`lineIndentOf(kwIdx)`), which - unlike the colon's
+    # own line - is correct even when the header condition spans several lines
+    # (`when a and⏎  b:`). Only enforced when the caller passes it (>= 0); value/
+    # argument-context blocks leave it -1 and are not checked. Zero-FP: a real
+    # block body is always strictly deeper than its statement line.
+    if hdrIndent >= 0 and first.indent <= hdrIndent:
+      ps.perrAt("expected-indented-body",
+        "this block's body must be indented deeper than its ':' line",
+        first.line, first.col,
+        fix = "indent the body under the ':'")
     let bodyRef = first.indent - 1
     while ps.tok(i).kind != tkEof and ps.tok(i).indent > bodyRef:
-      # An inline branch keyword (`else`/`elif`/…) can follow the body on its own
+      # An inline branch keyword (`else`/`elif`/...) can follow the body on its own
       # line: `if c:\n  callBody() else: x`. Bound this statement at that keyword
-      # so it is not swallowed as a command arg — the caller picks up the branch.
+      # so it is not swallowed as a command arg - the caller picks up the branch.
       var stmtHi = -1
       block:
         var d = 0
@@ -365,14 +375,14 @@ proc parseIfLike(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32;
       b.addTree "elif"
       ps.emitInfo(b, condTok.line, condTok.col, kw.line, kw.col, false)  # elif = cond pos
       ps.parseExprRange(b, int32(i + 1), int32(colon), condTok.line, condTok.col)
-      i = ps.emitBody(b, colon, refIndent, condTok.line, condTok.col)
+      i = ps.emitBody(b, colon, refIndent, condTok.line, condTok.col, ps.lineIndentOf(i))
       b.endTree()
     elif branch.kind == tkKeyword and branch.s == "else":
       let hi = ps.lineEnd(i)
       let colon = ps.findColon(i, hi)
       b.addTree "else"
       ps.emitInfo(b, branch.line, branch.col, kw.line, kw.col, false)   # else = keyword pos
-      i = ps.emitBody(b, colon, refIndent, branch.line, branch.col)
+      i = ps.emitBody(b, colon, refIndent, branch.line, branch.col, ps.lineIndentOf(i))
       b.endTree()
       break
     else:
@@ -397,7 +407,7 @@ proc parseWhile(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32): int 
   b.addTree "while"
   ps.emitInfo(b, kw.line, kw.col, pl, pc, false)
   ps.parseExprRange(b, int32(kwIdx + 1), int32(colon), kw.line, kw.col)  # cond parent = while
-  result = ps.emitBody(b, colon, refIndent, kw.line, kw.col)
+  result = ps.emitBody(b, colon, refIndent, kw.line, kw.col, ps.lineIndentOf(kwIdx))
   b.endTree()
 
 proc parseCase(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32): int =
@@ -420,6 +430,15 @@ proc parseCase(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32): int =
     let bhi = ps.lineEnd(i)
     let bcolon = ps.findColon(i, bhi)
     if br.s == "of":
+      # `of` must name at least one match value; a colon directly after it
+      # (`of: '+':`, or a bare `of:`) leaves no value. nifler reports "expression
+      # expected, but found ':'". An `of` with no colon at all on its line is a
+      # different malformed shape, left to the body logic.
+      if bcolon == i + 1:
+        let ct = ps.tok(bcolon)
+        ps.perrAt("of-without-value",
+          "'of' needs at least one value to match before its ':'",
+          ct.line, ct.col, fix = "put the branch value between 'of' and ':'")
       b.addTree "of"
       ps.emitInfo(b, br.line, br.col, kw.line, kw.col, false)
       b.addTree "ranges"   # ranges carries NO line-info
@@ -430,26 +449,26 @@ proc parseCase(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32): int =
         if aLo < aHi:
           ps.parseExprRange(b, int32(aLo), int32(aHi), br.line, br.col)  # value parent = of
       b.endTree()  # ranges
-      i = ps.emitBody(b, bcolon, refIndent, br.line, br.col)
+      i = ps.emitBody(b, bcolon, refIndent, br.line, br.col, ps.lineIndentOf(i))
       b.endTree()  # of
     elif br.s == "elif":
       b.addTree "elif"
       ps.emitInfo(b, br.line, br.col, kw.line, kw.col, false)
       let cEnd = if bcolon >= 0: bcolon else: bhi
       ps.parseExprRange(b, int32(i + 1), int32(cEnd), br.line, br.col)  # condition
-      i = ps.emitBody(b, bcolon, refIndent, br.line, br.col)
+      i = ps.emitBody(b, bcolon, refIndent, br.line, br.col, ps.lineIndentOf(i))
       b.endTree()  # elif
     else:
       b.addTree "else"
       ps.emitInfo(b, br.line, br.col, kw.line, kw.col, false)
-      i = ps.emitBody(b, bcolon, refIndent, br.line, br.col)
+      i = ps.emitBody(b, bcolon, refIndent, br.line, br.col, ps.lineIndentOf(i))
       b.endTree()
   b.endTree()  # case
   result = i
 
 proc emitForVars(ps: var Parser; b: var Builder; kwIdx, inIdx: int; firstVar: Token) =
-  ## Emit a for loop's quantified variables: `(unpacktup (let a …) …)` for a
-  ## `(a, b)` pattern, else `(unpackflat (let v …) …)` with a nested `unpacktup`
+  ## Emit a for loop's quantified variables: `(unpacktup (let a ...) ...)` for a
+  ## `(a, b)` pattern, else `(unpackflat (let v ...) ...)` with a nested `unpacktup`
   ## for any tuple-shaped var (`for i, (a, b) in pairs`). Shared by the statement
   ## and expression for-loop parsers.
   if firstVar.kind == tkParLe:
@@ -459,7 +478,7 @@ proc emitForVars(ps: var Parser; b: var Builder; kwIdx, inIdx: int; firstVar: To
     for ai in 0 ..< starts.len:
       let v = ps.tok(starts[ai])
       b.addTree "let"
-      ps.emitName(b, v, firstVar.line, firstVar.col)   # loop var, or `(quoted …)`
+      ps.emitName(b, v, firstVar.line, firstVar.col)   # loop var, or `(quoted ...)`
       b.addEmpty 4   # export, pragma, type, value
       b.endTree()
     b.endTree()
@@ -481,9 +500,9 @@ proc emitForVars(ps: var Parser; b: var Builder; kwIdx, inIdx: int; firstVar: To
         b.endTree()
       else:
         b.addTree "let"
-        ps.emitName(b, v, firstVar.line, firstVar.col)   # loop var, or `(quoted …)`
+        ps.emitName(b, v, firstVar.line, firstVar.col)   # loop var, or `(quoted ...)`
         b.addEmpty      # export marker
-        # a loop var may carry a pragma: `for name {.inject.} in …`
+        # a loop var may carry a pragma: `for name {.inject.} in ...`
         if ps.tok(starts[ai] + 1).kind == tkCurlyLe:
           discard ps.parsePragmas(b, starts[ai] + 1, v.line, v.col)
         else:
@@ -516,23 +535,23 @@ proc parseFor(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32): int =
   ps.emitInfo(b, firstVar.line, firstVar.col, pl, pc, false)
   # iterator FIRST (parent = for node)
   if inIdx < 0:
-    # `for x: body` with no `in` — nifler errors ("expected 'in'"). `inIdx + 1`
+    # `for x: body` with no `in` - nifler errors ("expected 'in'"). `inIdx + 1`
     # would be token 0 and the iterator would be read from the start of the file,
     # so emit an empty iterator and report instead.
     ps.perr("expected-in", "expected 'in' in the 'for' header", kw,
-            fix = "write 'for <vars> in <iterable>: …'")
+            fix = "write 'for <vars> in <iterable>: ...'")
     b.addEmpty
   else:
     ps.parseExprRange(b, int32(inIdx + 1), int32(colon), firstVar.line, firstVar.col)
   ps.emitForVars(b, kwIdx, inIdx, firstVar)
   # body LAST (parent = for node)
-  result = ps.emitBody(b, colon, refIndent, firstVar.line, firstVar.col)
+  result = ps.emitBody(b, colon, refIndent, firstVar.line, firstVar.col, ps.lineIndentOf(kwIdx))
   b.endTree()
 
 proc parseForExpr(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32; bare = true) =
-  ## `for vars in iter: body` in EXPRESSION position — a parenthesised for loop
+  ## `for vars in iter: body` in EXPRESSION position - a parenthesised for loop
   ## `(for _ in items(iter): discard)` (seen inside `compiles(...)`). Bounded by
-  ## `hi` (the `)`), with a BARE body (no `(stmts …)` wrapper), mirroring the
+  ## `hi` (the `)`), with a BARE body (no `(stmts ...)` wrapper), mirroring the
   ## bodies of the other bare paren control-flow forms.
   let kwIdx = int(lo)
   let colon = ps.findColon(kwIdx, int(hi))
@@ -549,14 +568,14 @@ proc parseForExpr(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32; bare = 
         inIdx = j; break
       inc j
   if colon < 0 or inIdx < 0:
-    # A malformed `for` — no body colon (`(for)`) or no `in` (`(for: )`). Both
+    # A malformed `for` - no body colon (`(for)`) or no `in` (`(for: )`). Both
     # sentinels are -1, so `colon + 1` / `inIdx + 1` would index token 0 and the
     # iterable/body would be parsed from the START OF FILE, recursing forever.
     # Emit an empty `for` instead.
     let kwT = ps.tok(kwIdx)
     if inIdx < 0:
       ps.perr("expected-in", "expected 'in' in the 'for' header", kwT,
-              fix = "write 'for <vars> in <iterable>: …'")
+              fix = "write 'for <vars> in <iterable>: ...'")
     else:
       ps.perr("expected-colon", "expected ':' to open the 'for' body", kwT,
               fix = "insert ':' after the iterable")
@@ -571,7 +590,7 @@ proc parseForExpr(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32; bare = 
   ps.parseExprRange(b, int32(inIdx + 1), int32(colon), firstVar.line, firstVar.col)
   ps.emitForVars(b, kwIdx, inIdx, firstVar)
   # A for EXPRESSION in a call argument (`collect(for k in xs: k)`) wraps its body
-  # in `(stmts …)`; a bare paren StmtListExpr result keeps it unwrapped.
+  # in `(stmts ...)`; a bare paren StmtListExpr result keeps it unwrapped.
   let bodyFirst = ps.tok(colon + 1)
   if not bare:
     b.addTree "stmts"
@@ -585,7 +604,7 @@ proc parseForExpr(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32; bare = 
 
 proc parseTryExpr(ps: var Parser; b: var Builder; lo, hi, pl, pc: int32) =
   ## `try: X except: Y` in EXPRESSION position: bodies are bare expressions,
-  ## not `(stmts …)` (that shape is only for statement-position try).
+  ## not `(stmts ...)` (that shape is only for statement-position try).
   let kw = ps.tok(int(lo))
   b.addTree "try"
   ps.emitInfo(b, kw.line, kw.col, pl, pc, false)
@@ -647,7 +666,7 @@ proc parseTry(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32): int =
   let colon = ps.findColon(kwIdx, hi)
   let bodyIndent = if colon >= 0 and ps.tok(colon + 1).indent >= 0:
                      ps.tok(colon + 1).indent else: int32(100000)
-  var i = ps.emitBody(b, colon, refIndent, kw.line, kw.col)   # try body, parent = try node
+  var i = ps.emitBody(b, colon, refIndent, kw.line, kw.col, ps.lineIndentOf(kwIdx))   # try body, parent = try node
   while ps.tok(i).kind == tkKeyword and
         (ps.tok(i).indent < 0 or
          (ps.tok(i).indent >= lineIndent and ps.tok(i).indent < bodyIndent)) and
@@ -668,12 +687,12 @@ proc parseTry(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32): int =
             ps.parseExprRange(b, int32(aLo), int32(aHi), br.line, br.col)
       else:
         b.addEmpty   # bare `except:` → `.`
-      i = ps.emitBody(b, bcolon, refIndent, br.line, br.col)
+      i = ps.emitBody(b, bcolon, refIndent, br.line, br.col, ps.lineIndentOf(i))
       b.endTree()
     else:
       b.addTree "fin"
       ps.emitInfo(b, br.line, br.col, kw.line, kw.col, false)
-      i = ps.emitBody(b, bcolon, refIndent, br.line, br.col)
+      i = ps.emitBody(b, bcolon, refIndent, br.line, br.col, ps.lineIndentOf(i))
       b.endTree()
   b.endTree()  # try
   result = i
@@ -687,10 +706,10 @@ proc parseBlock(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32): int 
   let colon = ps.findColon(kwIdx, hi)
   if kwIdx + 1 < colon and ps.tok(kwIdx + 1).kind == tkIdent:
     let lbl = ps.tok(kwIdx + 1)
-    ps.emitName(b, lbl, kw.line, kw.col)   # block label, or `(quoted …)`
+    ps.emitName(b, lbl, kw.line, kw.col)   # block label, or `(quoted ...)`
   else:
     b.addEmpty
-  result = ps.emitBody(b, colon, refIndent, kw.line, kw.col)
+  result = ps.emitBody(b, colon, refIndent, kw.line, kw.col, ps.lineIndentOf(kwIdx))
   b.endTree()
 
 proc parseBreakLike(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32;
@@ -702,7 +721,7 @@ proc parseBreakLike(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32;
   ps.emitInfo(b, kw.line, kw.col, pl, pc, false)
   if kwIdx + 1 < hi and ps.tok(kwIdx + 1).kind == tkIdent:
     let lbl = ps.tok(kwIdx + 1)
-    ps.emitName(b, lbl, kw.line, kw.col)   # break/continue label, or `(quoted …)`
+    ps.emitName(b, lbl, kw.line, kw.col)   # break/continue label, or `(quoted ...)`
   else:
     b.addEmpty
   b.endTree()
@@ -715,11 +734,11 @@ proc parseDefer(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32): int 
   ps.emitInfo(b, kw.line, kw.col, pl, pc, false)
   let hi = ps.lineEnd(kwIdx)
   let colon = ps.findColon(kwIdx, hi)
-  result = ps.emitBody(b, colon, refIndent, kw.line, kw.col)
+  result = ps.emitBody(b, colon, refIndent, kw.line, kw.col, ps.lineIndentOf(kwIdx))
   b.endTree()
 
 # ---------------------------------------------------------------------------
-# var / let / const sections (NO wrapper node — each def is a sibling)
+# var / let / const sections (NO wrapper node - each def is a sibling)
 # ---------------------------------------------------------------------------
 
 proc parseCtrlFlowValue(ps: var Parser; b: var Builder; kwIdx: int;
@@ -743,7 +762,7 @@ proc parseSectionDef(ps: var Parser; b: var Builder; lo, hi: int; tag: string;
   ## control-flow value).
   result = hi
   if ps.tok(lo).kind == tkParLe:
-    # tuple decl: `var (a, b) = value` → (unpackdecl value (unpacktup (var a …) …))
+    # tuple decl: `var (a, b) = value` → (unpackdecl value (unpacktup (var a ...) ...))
     let lp = ps.tok(lo)
     let rp = ps.matchClose(lo)
     let assign = ps.findAssign(rp + 1, hi)
@@ -751,9 +770,9 @@ proc parseSectionDef(ps: var Parser; b: var Builder; lo, hi: int; tag: string;
     ps.emitInfo(b, lp.line, lp.col, pl, pc, false)          # unpackdecl = '(' pos
     if assign >= 0 and assign + 1 < hi:
       let vt = ps.tok(assign + 1)
-      # multi-line control-flow value (`let (a, b) = if c: … else: …` with the
+      # multi-line control-flow value (`let (a, b) = if c: ... else: ...` with the
       # branches on later indented lines): route through the statement parser so
-      # the whole construct — including a trailing `else` — is consumed.
+      # the whole construct - including a trailing `else` - is consumed.
       if vt.kind == tkKeyword and (vt.s == "try" or vt.s == "if" or
          vt.s == "when" or vt.s == "case" or vt.s == "block"):
         result = ps.parseCtrlFlowValue(b, assign + 1, lp.line, lp.col)
@@ -766,7 +785,7 @@ proc parseSectionDef(ps: var Parser; b: var Builder; lo, hi: int; tag: string;
     for ai in 0 ..< starts.len:
       let v = ps.tok(starts[ai])
       b.addTree tag         # section tag (var/let/const)
-      ps.emitName(b, v, lp.line, lp.col)   # unpack var, or `(quoted …)`
+      ps.emitName(b, v, lp.line, lp.col)   # unpack var, or `(quoted ...)`
       b.addEmpty            # export
       b.addEmpty            # pragma
       b.addEmpty 2          # type, value
@@ -774,11 +793,11 @@ proc parseSectionDef(ps: var Parser; b: var Builder; lo, hi: int; tag: string;
     b.endTree()  # unpacktup
     b.endTree()  # unpackdecl
     return
-  # `name1, name2, … [{.pragma.}] [: type] [= value]`
+  # `name1, name2, ... [{.pragma.}] [: type] [= value]`
   var colon = ps.findColon(lo, hi)
   let assign = ps.findAssign(lo, hi)
   # a `:` AFTER the `=` is part of the value (e.g. `= if c in {A}: x else: y`),
-  # not a type annotation — the type colon must precede the assignment.
+  # not a type annotation - the type colon must precede the assignment.
   if assign >= 0 and colon > assign: colon = -1
   let boundary = if colon >= 0: colon elif assign >= 0: assign else: hi
   # optional `{.pragma.}` after the name list (before `:`/`=`)
@@ -806,8 +825,8 @@ proc parseSectionDef(ps: var Parser; b: var Builder; lo, hi: int; tag: string;
   for ni in 0 ..< nameStarts.len:
     let nTok = ps.tok(nameStarts[ni])
     # An exported name `Name*` is an nkPostfix in the classic AST; nifler anchors
-    # the section node at the NAME NODE's info (relLineInfo(n[i], …)), which for a
-    # postfix is the `*` position — so the name then gets a negative delta back to
+    # the section node at the NAME NODE's info (relLineInfo(n[i], ...)), which for a
+    # postfix is the `*` position - so the name then gets a negative delta back to
     # its real column. A non-exported name anchors at the name itself. Every child
     # (name, pragma, type, value) is emitted relative to this anchor.
     let hasExport = nameStarts[ni] + 1 < nameEnd and
@@ -823,7 +842,7 @@ proc parseSectionDef(ps: var Parser; b: var Builder; lo, hi: int; tag: string;
       else: nTok
     b.addTree tag
     ps.emitInfo(b, anchor.line, anchor.col, pl, pc, false)   # section node = name-node pos
-    ps.emitName(b, nTok, anchor.line, anchor.col)   # name atom, or `(quoted …)`
+    ps.emitName(b, nTok, anchor.line, anchor.col)   # name atom, or `(quoted ...)`
     # export marker `*`
     if hasExport:
       b.addRaw " x"
@@ -836,14 +855,14 @@ proc parseSectionDef(ps: var Parser; b: var Builder; lo, hi: int; tag: string;
     if typeLo >= 0 and typeLo < typeHi:
       # The type slot always goes through the TYPE parser (as nifler does): the
       # expression parser mishandles modifier keywords in generic args
-      # (`seq[ref Foo]`, `sink seq[string]`) and `proc (…)` type signatures.
+      # (`seq[ref Foo]`, `sink seq[string]`) and `proc (...)` type signatures.
       parseTypeRange(ps, b, int32(typeLo), int32(typeHi), anchor.line, anchor.col)
     else:
       b.addEmpty
     if valLo >= 0 and valLo < hi:
       let vt = ps.tok(valLo)
       # multi-line control-flow value (`= try:` / `= if c:` with body on later
-      # lines — the def line ends with the `:`): parse via the statement parser
+      # lines - the def line ends with the `:`): parse via the statement parser
       # so the body is consumed once, and report the extended end.
       if nameStarts.len == 1 and vt.kind == tkKeyword and
          (vt.s == "try" or vt.s == "if" or vt.s == "when" or
@@ -852,15 +871,15 @@ proc parseSectionDef(ps: var Parser; b: var Builder; lo, hi: int; tag: string;
       elif nameStarts.len == 1 and vt.kind == tkIdent and
            ps.depth0Colon(valLo, hi) > valLo:
         # value-position postExprBlock: `let x = onRaiseQuit:` / `= build(a):`
-        # with the block body on following indented lines → `(call callee …
-        # (stmts body))`. The head must be an ident (a call/command callee) — an
-        # anonymous `proc (…): T = …` literal starts with a keyword and its `:` is
+        # with the block body on following indented lines → `(call callee ...
+        # (stmts body))`. The head must be an ident (a call/command callee) - an
+        # anonymous `proc (...): T = ...` literal starts with a keyword and its `:` is
         # a return type, not a block; a `:` inside brackets stays at depth > 0.
         result = ps.parsePostExprBlock(b, valLo, ps.depth0Colon(valLo, hi),
                                        anchor.line, anchor.col)
       elif nameStarts.len == 1 and vt.kind == tkKeyword and
            (vt.s == "proc" or vt.s == "func" or vt.s == "iterator"):
-        # anonymous routine value (`let f = proc(…): T =⏎ <indented body>`): the
+        # anonymous routine value (`let f = proc(...): T =⏎ <indented body>`): the
         # body block is indented past this def but the def range stops at the
         # `=` line's end, so the trailing body statements would leak out and be
         # re-parsed as stray top-level siblings. Extend over every deeper line
@@ -882,8 +901,8 @@ proc parseSectionDef(ps: var Parser; b: var Builder; lo, hi: int; tag: string;
 proc extendPastTypeColon(ps: Parser; startIdx, e0: int): int =
   ## A var/let/const def whose line ends in a dangling TYPE colon carries its type
   ## on the next, deeper-indented line (`var x {.p.}:⏎  ptr T`). Pull that line in.
-  ## Only when the def has no depth-0 `=` — otherwise the colon lives inside a
-  ## value expression (`var x = if c:` …) and the block belongs to that expr.
+  ## Only when the def has no depth-0 `=` - otherwise the colon lives inside a
+  ## value expression (`var x = if c:` ...) and the block belongs to that expr.
   result = e0
   while result > startIdx and ps.tok(result - 1).kind == tkColon and
         ps.tok(result).kind != tkEof and
@@ -927,8 +946,8 @@ proc parseSection(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32;
 
 proc parsePragmaStmt(ps: var Parser; b: var Builder; braceIdx: int; pl, pc: int32): int =
   ## A statement that starts with `{.` is a pragma statement, NOT a `{ }` set.
-  ## `{.pragmas.}: body` → `(pragmax (pragmas …) (stmts …))`; a bare
-  ## `{.pragmas.}` (e.g. `{.push ….}`) is just the `(pragmas …)` node.
+  ## `{.pragmas.}: body` → `(pragmax (pragmas ...) (stmts ...))`; a bare
+  ## `{.pragmas.}` (e.g. `{.push ....}`) is just the `(pragmas ...)` node.
   let brace = ps.tok(braceIdx)
   let rb = ps.matchClose(braceIdx)          # closing `}`
   if ps.tok(rb + 1).kind == tkColon:
@@ -974,13 +993,13 @@ proc parseFromImport(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32):
   result = hi
 
 proc parseStatic(ps: var Parser; b: var Builder; kwIdx: int; pl, pc: int32): int =
-  ## `static: body` → `(staticstmt (stmts …))`.
+  ## `static: body` → `(staticstmt (stmts ...))`.
   let kw = ps.tok(kwIdx)
   b.addTree "staticstmt"
   ps.emitInfo(b, kw.line, kw.col, pl, pc, false)
   let hi = ps.lineEnd(kwIdx)
   let colon = ps.findColon(kwIdx, hi)
-  result = ps.emitBody(b, colon, kw.col, kw.line, kw.col)
+  result = ps.emitBody(b, colon, kw.col, kw.line, kw.col, ps.lineIndentOf(kwIdx))
   b.endTree()
 
 proc semiEnd(ps: Parser; startIdx, bound: int): int =
@@ -1001,7 +1020,7 @@ proc appendTrailingDo(ps: var Parser; b: var Builder; start: int;
                       refIndent: int; pl, pc: int32): int =
   ## After a colon-block call/command, fold any trailing paramless `do:` blocks
   ## (aligned at the call's reference indent) into the still-open call node as
-  ## extra `(stmts …)` args — `foo(x):⏎ a⏎do:⏎ b` → `(call foo x (stmts a) (stmts b))`.
+  ## extra `(stmts ...)` args - `foo(x):⏎ a⏎do:⏎ b` → `(call foo x (stmts a) (stmts b))`.
   result = start
   while ps.tok(result).kind == tkKeyword and ps.tok(result).s == "do" and
         int(ps.tok(result).indent) == refIndent and
@@ -1010,11 +1029,11 @@ proc appendTrailingDo(ps: var Parser; b: var Builder; start: int;
 
 proc parsePostExprBlock(ps: var Parser; b: var Builder; headLo, colonIdx: int;
                         pl, pc: int32): int =
-  ## Nim postExprBlocks: `call(args): body` / `cmd a, b: body` — the trailing
-  ## `:` block becomes a `(stmts …)` argument appended to the call/command.
+  ## Nim postExprBlocks: `call(args): body` / `cmd a, b: body` - the trailing
+  ## `:` block becomes a `(stmts ...)` argument appended to the call/command.
   let head = ps.tok(headLo)
   let refIndent = head.col
-  # `do` block: `expr do (params) -> ret: body` → `(call <callee> (do (params …)
+  # `do` block: `expr do (params) -> ret: body` → `(call <callee> (do (params ...)
   # ret (stmts body)))`. Detect a depth-0 `do` keyword introducing the block.
   block doBlock:
     var d = 0
@@ -1030,7 +1049,7 @@ proc parsePostExprBlock(ps: var Parser; b: var Builder; headLo, colonIdx: int;
       inc k
     if doIdx > headLo and ps.tok(doIdx + 1).kind != tkParLe:
       # A command prefix before `do` (`dst.add quote do: body`): the do-block binds
-      # to the LAST argument, not the whole command → `(cmd <callee> …args…
+      # to the LAST argument, not the whole command → `(cmd <callee> ...args...
       # (call <lastArg> (stmts body)))`, matching nifler.
       let cce = ps.cmdCalleeEnd(headLo, doIdx)
       if (ps.tok(headLo).kind == tkIdent or isOpenBracket(ps.tok(headLo).kind)) and
@@ -1054,7 +1073,7 @@ proc parsePostExprBlock(ps: var Parser; b: var Builder; headLo, colonIdx: int;
             b.endTree()   # call
         b.endTree()   # cmd
         return
-      # paramless `do:` — `expr do: body` / `quote do: body` collapses to
+      # paramless `do:` - `expr do: body` / `quote do: body` collapses to
       # `(call <callee> (stmts body))`, the `do` (and its empty params) folded
       # away entirely, matching nifler's handling.
       let anchor = ps.calleeAnchor(headLo, doIdx)
@@ -1071,17 +1090,17 @@ proc parsePostExprBlock(ps: var Parser; b: var Builder; headLo, colonIdx: int;
       else:
         ps.parseExprRange(b, int32(headLo), int32(doIdx), anchor.line, anchor.col)    # callee
       result = ps.emitBody(b, colonIdx, refIndent, anchor.line, anchor.col)       # (stmts body)
-      # fold trailing aligned `do:` blocks (`withData(…) do:⏎ a⏎do:⏎ b`) into the
-      # same call as extra `(stmts …)` args, instead of leaving a stray `(call do …)`.
+      # fold trailing aligned `do:` blocks (`withData(...) do:⏎ a⏎do:⏎ b`) into the
+      # same call as extra `(stmts ...)` args, instead of leaving a stray `(call do ...)`.
       result = ps.appendTrailingDo(b, result, int(refIndent), anchor.line, anchor.col)
       b.endTree()   # call
       return
     if doIdx > headLo and ps.tok(doIdx + 1).kind == tkParLe:
-      # Anchoring (reverse-engineered from nifler on `expr do (…) -> T: body`):
-      #  • the CALL node anchors at the callee expression's info — the `.` of a
+      # Anchoring (reverse-engineered from nifler on `expr do (...) -> T: body`):
+      #  • the CALL node anchors at the callee expression's info - the `.` of a
       #    dotted callee (calleeAnchor), so the callee child gets delta 0;
       #  • the DO node (nkDo) anchors at the BODY's first token, NOT the `do`
-      #    keyword — so `(params…)` carries a `@col,~1` delta back up to the `(`
+      #    keyword - so `(params...)` carries a `@col,~1` delta back up to the `(`
       #    and the body `(stmts)` becomes delta 0 against the do.
       let callAnchor = ps.calleeAnchor(headLo, doIdx)
       let bodyFirst = ps.tok(colonIdx + 1)
@@ -1105,7 +1124,7 @@ proc parsePostExprBlock(ps: var Parser; b: var Builder; headLo, colonIdx: int;
       return
   let ce = ps.cmdCalleeEnd(headLo, colonIdx)
   if head.kind == tkIdent and ce < colonIdx and ps.startsArg(ce, colonIdx):
-    # command with space-separated args: `foo a, b: body` → `(cmd callee args… (stmts))`.
+    # command with space-separated args: `foo a, b: body` → `(cmd callee args... (stmts))`.
     # Statement-context → anchor at the callee expression's info (the `.` for a
     # dotted callee), matching parseCommand / nifler's `newTree(nkCommand, a.info)`.
     let anchor = ps.calleeAnchor(headLo, ce)
@@ -1118,8 +1137,8 @@ proc parsePostExprBlock(ps: var Parser; b: var Builder; headLo, colonIdx: int;
     b.endTree()
   else:
     # generalized-raw-string call with a colon block: `runnableExamples"-r:off":⏎
-    # body` → the block appends directly onto the `(callstrlit …)` node, NOT an
-    # outer `(call (callstrlit …) …)` wrapper.
+    # body` → the block appends directly onto the `(callstrlit ...)` node, NOT an
+    # outer `(call (callstrlit ...) ...)` wrapper.
     block callstrlit:
       let s = ps.tok(colonIdx - 1)
       if (s.kind == tkStrLit or s.kind == tkRStrLit or s.kind == tkTripleStrLit) and
@@ -1142,10 +1161,10 @@ proc parsePostExprBlock(ps: var Parser; b: var Builder; headLo, colonIdx: int;
           b.endTree()   # callstrlit
           return
     # call form: `foo: body` / `c.into: body` / `foo(args): body`
-    # → `(call <callee> [args…] (stmts body))`.
+    # → `(call <callee> [args...] (stmts body))`.
     b.addTree "call"
     if colonIdx - 1 >= headLo and ps.tok(colonIdx - 1).kind == tkParRi:
-      # parenthesized call `foo(args): body` — nkCall from primarySuffix anchors
+      # parenthesized call `foo(args): body` - nkCall from primarySuffix anchors
       # at the `(` (the open paren), so the callee gets a negative delta back.
       let rparen = colonIdx - 1
       let lparen = ps.matchOpen(rparen)
@@ -1156,7 +1175,7 @@ proc parsePostExprBlock(ps: var Parser; b: var Builder; headLo, colonIdx: int;
       result = ps.emitBody(b, colonIdx, refIndent, lp.line, lp.col)     # (stmts body) arg
       result = ps.appendTrailingDo(b, result, int(refIndent), lp.line, lp.col)
     else:
-      # bare callee `foo: body` / `c.into: body` — postExprBlocks wraps the callee,
+      # bare callee `foo: body` / `c.into: body` - postExprBlocks wraps the callee,
       # so the call anchors at the callee expression's info (the `.` for a dotted
       # callee), matching parseCommand's calleeAnchor rule.
       let anchor = ps.calleeAnchor(headLo, colonIdx)
@@ -1178,7 +1197,7 @@ proc parseOneStmt(ps: var Parser; b: var Builder; startIdx: int; pl, pc: int32;
     ps.emitInfo(b, t.line, t.col, pl, pc, false)
     b.endTree()
     return startIdx + 1
-  # `{. …` at statement position is a pragma statement, not a set constructor.
+  # `{. ...` at statement position is a pragma statement, not a set constructor.
   if t.kind == tkCurlyLe and ps.tok(startIdx + 1).kind == tkDot:
     return ps.parsePragmaStmt(b, startIdx, pl, pc)
   if t.kind == tkKeyword:
@@ -1203,8 +1222,8 @@ proc parseOneStmt(ps: var Parser; b: var Builder; startIdx: int; pl, pc: int32;
     of "from": return ps.parseFromImport(b, startIdx, pl, pc)
     of "static":
       # An inline `static: body` (as the one-line body of another colon block,
-      # `if c: static: x`) parses via the command path as `(call static (stmts …))`,
-      # NOT a `(staticstmt …)`; a standalone `static:` block stays staticstmt.
+      # `if c: static: x`) parses via the command path as `(call static (stmts ...))`,
+      # NOT a `(staticstmt ...)`; a standalone `static:` block stays staticstmt.
       if hiLimit >= 0:
         let kw = ps.tok(startIdx)
         let colon = ps.findColon(startIdx, ps.lineEnd(startIdx))
@@ -1233,13 +1252,13 @@ proc parseOneStmt(ps: var Parser; b: var Builder; startIdx: int; pl, pc: int32;
     of "type": return ps.parseTypeSection(b, startIdx, pl, pc)
     else: discard
   # postExprBlock: an expression statement whose line has a depth-0 `:` (not a
-  # keyword statement) is `call/cmd(args): body` — parse the block as a trailing
-  # `(stmts …)` arg. (Bounded to the head line; the block is on later lines.)
+  # keyword statement) is `call/cmd(args): body` - parse the block as a trailing
+  # `(stmts ...)` arg. (Bounded to the head line; the block is on later lines.)
   let peLineHi = ps.lineEnd(startIdx)
   let pePcolon = ps.depth0Colon(startIdx, peLineHi)
   # A `do:` block (a depth-0 `do` before the colon) is an unambiguous
-  # postExprBlock even inside a BOUNDED one-line body (`insert(0): quote do: …`
-  # — the outer block's body is itself a `quote do:` statement), so allow it
+  # postExprBlock even inside a BOUNDED one-line body (`insert(0): quote do: ...`
+  # - the outer block's body is itself a `quote do:` statement), so allow it
   # regardless of hiLimit; other bounded colons stay top-level-only.
   var peHasDo = false
   if pePcolon > startIdx:
@@ -1257,12 +1276,12 @@ proc parseOneStmt(ps: var Parser; b: var Builder; startIdx: int; pl, pc: int32;
     let pcolon = pePcolon
     # A depth-0 `:` in a non-keyword statement is a command/do-block body,
     # `foo a: body` / `x.build y: body` (inline or on following lines). Guard
-    # against an assignment RHS (`x = …`).
+    # against an assignment RHS (`x = ...`).
     if pcolon > startIdx and ps.findAssign(startIdx, pcolon) < 0:
       # exclude a colon owned by an unparenthesized if/when/case EXPRESSION in
       # the head (`x = if c: a`, `echo if c: a else: b`), or by an anonymous
-      # routine's return type (`xs.sort proc (a): int = …` — the `: int` is the
-      # proc return, not a block) — neither is a postExprBlock.
+      # routine's return type (`xs.sort proc (a): int = ...` - the `: int` is the
+      # proc return, not a block) - neither is a postExprBlock.
       var cf = false
       var d = 0
       var k = startIdx
@@ -1279,12 +1298,12 @@ proc parseOneStmt(ps: var Parser; b: var Builder; startIdx: int; pl, pc: int32;
         inc k
       if not cf:
         return ps.parsePostExprBlock(b, startIdx, pcolon, pl, pc)
-    # assignment-RHS postExprBlock: `result = foo(x):` / `result = foo: a = b` —
-    # the `:` block belongs to the RHS call. Emit `(asgn lhs (call … (stmts …)))`.
+    # assignment-RHS postExprBlock: `result = foo(x):` / `result = foo: a = b` -
+    # the `:` block belongs to the RHS call. Emit `(asgn lhs (call ... (stmts ...)))`.
     if pcolon > startIdx:
       let eqi = ps.findAssign(startIdx, pcolon)
       if eqi > startIdx and eqi + 1 < pcolon:
-        # exclude a control-flow / anon-routine RHS (`x = if c: a`) — that colon
+        # exclude a control-flow / anon-routine RHS (`x = if c: a`) - that colon
         # is the expression's, not a block.
         var cf = false
         var d = 0
@@ -1310,7 +1329,7 @@ proc parseOneStmt(ps: var Parser; b: var Builder; startIdx: int; pl, pc: int32;
           b.endTree()   # asgn
           return
     # Fallback: the first depth-0 `:` belonged to an if/case/proc in the args, but
-    # the head LINE still ends with a real block colon —
+    # the head LINE still ends with a real block colon -
     # `addUIntTypedOp dest, if k: A else: B, 8, info:` with the body on the next
     # lines. A trailing depth-0 `:` at end of line is that block introducer.
     let eol = lineHi - 1
@@ -1323,7 +1342,7 @@ proc parseOneStmt(ps: var Parser; b: var Builder; startIdx: int; pl, pc: int32;
   if hiLimit >= 0 and hiLimit < bound: bound = hiLimit
   let hi = ps.semiEnd(startIdx, bound)
   # statement-trailing pragma: `foo() {.executeOnReload.}` → `(pragmax <expr>
-  # (pragmas …))`. A depth-0 `{.` … `.}` at the END of an expression statement is
+  # (pragmas ...))`. A depth-0 `{.` ... `.}` at the END of an expression statement is
   # a trailing pragma, not a set constructor (`{.` never opens a set).
   if hi - 1 > startIdx and ps.tok(hi - 1).kind == tkCurlyRi:
     let opb = ps.matchOpen(hi - 1)
@@ -1342,11 +1361,11 @@ proc parseOneStmt(ps: var Parser; b: var Builder; startIdx: int; pl, pc: int32;
 proc parseStmtImpl(ps: var Parser; b: var Builder; startIdx: int; pl, pc: int32;
                hiLimit: int): int =
   ## Parse a run of `;`-separated statements on the same logical line (each an
-  ## `(stmts …)` sibling), bounded by `hiLimit` (a branch/brace body) or the
+  ## `(stmts ...)` sibling), bounded by `hiLimit` (a branch/brace body) or the
   ## logical line. Returns the index after the last one.
   var bound = ps.lineEnd(startIdx)
   if hiLimit >= 0 and hiLimit < bound: bound = hiLimit
-  # Skip empty statements — a bare `;` separator (or a run of them) produces no
+  # Skip empty statements - a bare `;` separator (or a run of them) produces no
   # node in nifler. Without this a *trailing* `;` (`let x = 1;` then EOL/EOF)
   # would leave the cursor parked on the separator and every caller loop would
   # re-enter at the same index forever (a hang, not a wrong tree).

@@ -1,4 +1,4 @@
-## lexer.nim — full hand-written Nim lexer for aifparser.
+## lexer.nim - full hand-written Nim lexer for aifparser.
 ##
 ## Produces the `Token` stream defined in `tokens.nim`. It is written to match
 ## the classic Nim lexer (`Nim/compiler/lexer.nim`) closely enough that the
@@ -9,7 +9,7 @@
 ## * identifiers & keywords, operators (all operator chars, multi-char),
 ##   punctuation `( ) [ ] { } , ; : .`, backtick-quoted identifiers.
 ## * numeric literals: bases `0x`/`0o`/`0b`/`0c` and decimal, `_` digit
-##   separators (both DECODED — nifler emits decimal only, base/underscores are
+##   separators (both DECODED - nifler emits decimal only, base/underscores are
 ##   LOST), float literals with `.` fraction and `e`/`E` exponent, and typed
 ##   suffixes `'i8`.. / `'u`.. / `'f32`.. recorded in `Token.suffix`.
 ## * strings: `"..."` (Nim escapes decoded to raw bytes), `r"..."`
@@ -40,7 +40,7 @@ type
   BomPolicy* = enum
     ## Handling of a leading UTF-8 BOM (`EF BB BF`).
     bomDefault ## DEFAULT: legacy behaviour (a BOM is skipped as 3 unknown
-               ## bytes, which shifts line-1 column — a latent bug, left as-is).
+               ## bytes, which shifts line-1 column - a latent bug, left as-is).
     bomStrip   ## consume a leading BOM WITHOUT advancing the column, so line-1
                ## indent/col are unaffected.
     bomReject  ## warn on stderr (and count an error) when a BOM is present.
@@ -73,12 +73,37 @@ type
     tabStops*: TabStops     ## tab-advance mode when tabs permitted (default tsHard).
     docComments*: bool      ## true (default) = emit standalone doc comments as a
                             ## `(comment)` node; false = drop them entirely.
+    cOperatorsWarn*: bool   ## advisory: warn on the C boolean operators `&&`/`||`
+                            ## (Nim uses `and`/`or`); opt-in (default off).
+    semicolonWarn*: bool    ## advisory: warn on a redundant trailing `;` (Nim
+                            ## separates statements by newline); opt-in (default off).
+    idiomsWarn*: bool       ## advisory: idiomatic-Nim lints on VALID code - a
+                            ## redundant `== true`/`== false` bool compare, a
+                            ## `not not` double negation. Opt-in (default off).
+    floatEqWarn*: bool      ## advisory: flag `==`/`!=` against a float literal
+                            ## (unreliable; use a tolerance). Opt-in (default off).
+    nilStyleWarn*: bool     ## OPINION: flag `x == nil`/`x != nil` (prefer isNil).
+    yodaWarn*: bool         ## OPINION: flag a literal on the left of `==`/`!=`.
+    redundantParensWarn*: bool  ## OPINION: flag `if (cond):` — parens not needed.
+    emptyStrWarn*: bool     ## OPINION: flag `s & ""` / `"" & s` — a no-op concat.
+    echoWarn*: bool         ## OPINION: flag a bare `echo` statement (debug print).
+    rangeIndexWarn*: bool   ## OPINION: flag `0 .. n - 1` — prefer `0 ..< n`.
+    broadExceptWarn*: bool  ## OPINION: flag `except Exception` — too broad.
+    bareExceptWarn*: bool   ## OPINION: flag a bare `except:` — catches everything.
+    castWarn*: bool         ## OPINION: flag `cast[T](x)` — an unsafe reinterpret.
+    converterWarn*: bool    ## OPINION: flag a `converter` — implicit conversions.
+    addrWarn*: bool         ## OPINION: flag `addr`/`unsafeAddr` — raw address.
+    asmWarn*: bool          ## OPINION: flag an `asm` block — low-level/non-portable.
 
 const
   defaultLexOptions* = LexOptions(tabPolicy: tpSpaces, tabWidth: 8, indentWidth: 0,
     finalNewlineRequire: false, newlinePolicy: nlAny, trailingWhitespaceWarn: false,
     bomPolicy: bomDefault, indentConsistency: false, tabStops: tsHard,
-    docComments: true)
+    docComments: true, cOperatorsWarn: false, semicolonWarn: false,
+    idiomsWarn: false, floatEqWarn: false, nilStyleWarn: false, yodaWarn: false,
+    redundantParensWarn: false, emptyStrWarn: false, echoWarn: false,
+    rangeIndexWarn: false, broadExceptWarn: false, bareExceptWarn: false,
+    castWarn: false, converterWarn: false, addrWarn: false, asmWarn: false)
 
 type
   Lexer = object
@@ -105,7 +130,7 @@ proc initLexer(src: string; opts: LexOptions): Lexer =
 template addDiag(lx: var Lexer; sev: Severity; dcode, dmsg: string;
                  dline, dcol, dend: int32) =
   ## Record one structured diagnostic. This is the single seam every check funnels
-  ## through — adding a new lexer/parser check is just another `addDiag` call, and
+  ## through - adding a new lexer/parser check is just another `addDiag` call, and
   ## `sevError` diagnostics also bump the `--strict` error count. Never aborts.
   ## A template (not a proc) so a call may read `lx.*` fields in its arguments
   ## without tripping nimony's var-parameter alias check; params are prefixed so
@@ -117,7 +142,7 @@ template addDiag(lx: var Lexer; sev: Severity; dcode, dmsg: string;
 var gLexDiags*: seq[Diagnostic] = @[]
   ## Diagnostics from the most recent `tokenize` (aifparser is single-shot per
   ## file, so a module accumulator is enough; the CLI reads it after tokenising).
-  ## Parser-level checks append here too — see `checkBrackets`.
+  ## Parser-level checks append here too - see `checkBrackets`.
 
 proc toHex2(b: uint8): string =
   const hex = "0123456789ABCDEF"
@@ -163,7 +188,7 @@ proc isIdentStart(c: char): bool =
   ## Nim identifiers are UTF-8: any byte >= 0x80 (a unicode lead/continuation
   ## byte) is a valid identifier character, so `café`, `åäö`, Cyrillic and CJK
   ## names lex as single identifiers rather than a run of illegal bytes. The
-  ## classic lexer does the same (it never validates UTF-8 here — it just accepts
+  ## classic lexer does the same (it never validates UTF-8 here - it just accepts
   ## high bytes and emits them verbatim).
   c == '_' or (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or
     (uint8(c) >= 0x80'u8)
@@ -213,7 +238,7 @@ proc startToken(lx: var Lexer; kind: TokKind): Token =
       lx.prevIndent = lx.col
 
 # ---------------------------------------------------------------------------
-# escape decoding (mirrors classic getEscapedChar) — appends RAW decoded bytes
+# escape decoding (mirrors classic getEscapedChar) - appends RAW decoded bytes
 # ---------------------------------------------------------------------------
 
 proc addUtf8(s: var string; cp: int) =
@@ -258,17 +283,25 @@ proc decodeEscape(lx: var Lexer; s: var string) =
       xi = (xi shl 4) or hexVal(lx.cur)
       advance lx
       inc k
+    if k == 0:
+      lx.addDiag(sevError, "invalid-escape-sequence",
+                 "expected a hex digit after '\\x'", lx.line, lx.col, lx.col)
     s.add chr(xi and 0xFF)
   of 'u', 'U':
     advance lx
     var xi = 0
     if lx.cur == '{':
       advance lx
+      var udigits = 0
       while lx.cur != '}' and lx.pos < lx.n:
         if isHexDigit(lx.cur):
           xi = (xi shl 4) or hexVal(lx.cur)
+          inc udigits
         advance lx
       if lx.cur == '}': advance lx
+      if udigits == 0:
+        lx.addDiag(sevError, "invalid-unicode-escape",
+                   "unicode codepoint cannot be empty", lx.line, lx.col, lx.col)
     else:
       var k = 0
       while k < 4 and isHexDigit(lx.cur):
@@ -283,8 +316,11 @@ proc decodeEscape(lx: var Lexer; s: var string) =
       advance lx
     s.add chr(xi and 0xFF)
   else:
-    # invalid escape — pass the char through verbatim
+    # invalid escape - nifler rejects it ("invalid character constant"). We still
+    # pass the char through verbatim so the emitted AIF is unchanged.
     if lx.pos < lx.n:
+      lx.addDiag(sevError, "invalid-escape-sequence",
+                 "invalid character escape '\\" & c & "'", lx.line, lx.col, lx.col)
       s.add c
       advance lx
 
@@ -311,10 +347,12 @@ proc lexTripleString(lx: var Lexer; raw: bool): Token =
   elif lx.cur == '\n':
     advance lx
   var s = ""
+  var closed = false
   while lx.pos < lx.n:
     if lx.cur == '"' and lx.peek(1) == '"' and lx.peek(2) == '"' and
        lx.peek(3) != '"':
       advance lx; advance lx; advance lx
+      closed = true
       break
     elif lx.cur == '\r':
       advance lx
@@ -326,6 +364,10 @@ proc lexTripleString(lx: var Lexer; raw: bool): Token =
     else:
       s.add lx.cur
       advance lx
+  if not closed:
+    lx.addDiag(sevError, "unterminated-string",
+               "closing \"\"\" expected, but end of file reached",
+               result.line, result.col, lx.col)
   result.s = s
 
 proc lexRawString(lx: var Lexer): Token =
@@ -333,6 +375,7 @@ proc lexRawString(lx: var Lexer): Token =
   result = startToken(lx, tkRStrLit)
   advance lx # opening quote
   var s = ""
+  var closed = false
   while lx.pos < lx.n and lx.cur != '\n':
     if lx.cur == '"':
       if lx.peek(1) == '"':
@@ -340,10 +383,14 @@ proc lexRawString(lx: var Lexer): Token =
         advance lx; advance lx
       else:
         advance lx
+        closed = true
         break
     else:
       s.add lx.cur
       advance lx
+  if not closed:
+    lx.addDiag(sevError, "unterminated-string", "closing \" expected",
+               result.line, result.col, lx.col)
   result.s = s
 
 proc lexString(lx: var Lexer): Token =
@@ -361,7 +408,7 @@ proc lexString(lx: var Lexer): Token =
       advance lx
   if lx.cur == '"': advance lx
   else:
-    # ran into a newline or EOF before the closing quote (recoverable — we keep
+    # ran into a newline or EOF before the closing quote (recoverable - we keep
     # the text scanned so far and carry on lexing the next line).
     lx.addDiag(sevError, "unterminated-string", "unterminated string literal",
                result.line, result.col, lx.col)
@@ -386,9 +433,9 @@ proc lexChar(lx: var Lexer): Token =
   advance lx # opening quote
   var s = ""
   if lx.cur == '\'':
-    # `''` — an empty character literal has no content to name a byte value.
+    # `''` - an empty character literal has no content to name a byte value.
     lx.addDiag(sevError, "invalid-character-literal",
-               "invalid character literal — a char must hold exactly one character",
+               "invalid character literal - a char must hold exactly one character",
                result.line, result.col, lx.col)
     advance lx # consume the closing quote so lexing recovers past it
   else:
@@ -450,11 +497,11 @@ proc lexNumber(lx: var Lexer): Token =
   var isFloat = false
 
   # ---- base prefix -------------------------------------------------------
-  # `0O…` (capital O) is NOT a valid octal prefix in Nim — it's too easily
+  # `0O...` (capital O) is NOT a valid octal prefix in Nim - it's too easily
   # confused with a `0` followed by the letter O. nifler rejects it outright.
   if lx.cur == '0' and lx.peek(1) == 'O':
     lx.addDiag(sevError, "invalid-int-literal",
-               "'0O' is not a valid octal prefix — use lowercase '0o'",
+               "'0O' is not a valid octal prefix - use lowercase '0o'",
                lx.line, lx.col, lx.col + 2)
   if lx.cur == '0' and lx.peek(1) in {'x', 'X', 'o', 'b', 'B', 'c', 'C'}:
     let b = lx.peek(1)
@@ -510,22 +557,45 @@ proc lexNumber(lx: var Lexer): Token =
     if lx.cur == 'e' or lx.cur == 'E':
       isFloat = true
       floatText.add 'e'
+      let ecol = lx.col                # start of the 'e' for the diagnostic span
       advance lx
       if lx.cur == '+' or lx.cur == '-':
         floatText.add lx.cur
         advance lx
+      var expDigits = 0
       while true:
         if isDigit(lx.cur):
           floatText.add lx.cur
           advance lx
+          inc expDigits
         elif lx.cur == '_':
           advance lx
         else:
           break
+      if expDigits == 0:
+        # `1e`, `1.5e`, `1e+` - an exponent marker with no digits (nifler rejects it
+        # as an invalid number). Unambiguous, so flagging it is zero-FP.
+        lx.addDiag(sevError, "invalid-number",
+                   "the exponent has no digits", result.line, ecol, lx.col)
+        floatText.add '0'          # recover: '1e' -> '1e0' so the float decode is safe
 
   # raw numeric source text (with base prefix, without the `'suffix`), needed to
   # reproduce a CUSTOM numeric literal (`0xff'big` → `(dot (suf "0xff" "R") 'big)`).
   let rawText = lx.src[numStart ..< lx.pos]
+
+  # Underscores may only sit BETWEEN digits - a doubled `__` or a trailing `_`
+  # is malformed (nifler: "only single underscores may occur...and may not end
+  # with an underscore"). Both are unambiguous, so flagging them is zero-FP.
+  if rawText.len > 0:
+    var badUnderscore = rawText[rawText.len - 1] == '_'
+    var i = 1
+    while i < rawText.len:
+      if rawText[i] == '_' and rawText[i-1] == '_': badUnderscore = true
+      inc i
+    if badUnderscore:
+      lx.addDiag(sevError, "invalid-number",
+                 "only single underscores may occur in a number, and it may not " &
+                 "end with an underscore", result.line, result.col, lx.col)
 
   # ---- type suffix -------------------------------------------------------
   var suffix = ""
@@ -544,10 +614,22 @@ proc lexNumber(lx: var Lexer): Token =
       advance lx
     suffix = raw
 
+  # A letter glued directly to a number that the suffix scan did NOT consume - the
+  # C/Java/JS integer suffix habit (`100L`, `100LL`, `100n`) or a plain typo
+  # (`0xFFg`). Nim's builtin suffixes (f/F/d/D/i/I/u/U...) are consumed above, and a
+  # typed literal uses an apostrophe (`100'i64`), so any remaining glued letter is
+  # unambiguously malformed. nifler rejects it; flagging is zero-FP. (A side-channel
+  # diagnostic only - the token stream, and so the emitted AIF, is unchanged.)
+  if suffix.len == 0 and isIdentStart(lx.cur):
+    lx.addDiag(sevError, "invalid-number",
+               "a number can't be directly followed by a letter - a typed " &
+               "literal uses an apostrophe, e.g. 100'i64",
+               result.line, result.col, lx.col + 1)
+
   # ---- classify + decode -------------------------------------------------
   let sufl = suffix
   # A CUSTOM literal suffix (`'big`) is any suffix that is not a builtin numeric
-  # type suffix. It is emitted structurally differently (a `(dot (suf …) 'big)`),
+  # type suffix. It is emitted structurally differently (a `(dot (suf ...) 'big)`),
   # so flag it and keep the raw source text in `result.s`.
   var custom = false
   if sufl.len > 0:
@@ -575,7 +657,7 @@ proc lexNumber(lx: var Lexer): Token =
     result.kind = tkFloatLit
     if base != 10:
       # A hex/oct/bin literal with a FLOAT suffix (`0x7FF0000000000000'f64`)
-      # reinterprets the integer BITS as the float — this is how `Inf`/`NaN` are
+      # reinterprets the integer BITS as the float - this is how `Inf`/`NaN` are
       # spelled. Decode the bits and cast, rather than reading the hex digits as a
       # (wrong) decimal float.
       let bits = decodeIntBase(digits, base)
@@ -603,7 +685,7 @@ proc lexNumber(lx: var Lexer): Token =
       if (result.iVal and (1'i64 shl (width - 1))) != 0'i64:
         result.iVal = result.iVal - (1'i64 shl width)
     # A value that exceeds its UNSIGNED small type's range (`0x123'u8` = 291 > 255)
-    # is out of range — nifler rejects it. Only the small unsigned types are
+    # is out of range - nifler rejects it. Only the small unsigned types are
     # checked here: their max fits in int64 with no sign/two's-complement
     # ambiguity, so the comparison is exact and cannot false-positive on a valid
     # literal (`0xFF'u8` = 255 = max stays fine). u64/i64 boundary checks would
@@ -691,6 +773,10 @@ proc lexBackquotedIdent(lx: var Lexer): Token =
       one.add c; s.add c; advance lx
       parts.add one
   if lx.cur == '`': advance lx
+  else:
+    lx.addDiag(sevError, "unterminated-backtick",
+               "closing ` expected for accent-quoted identifier",
+               result.line, result.col, lx.col)
   result.s = s
   result.parts = parts
   result.partCols = partCols
@@ -736,14 +822,14 @@ proc tokenize*(src: string): seq[Token]
 proc tokenize*(src: string; opts: LexOptions; errors: var int): seq[Token] =
   ## Produce the full token list terminated by a `tkEof`. Whitespace and
   ## comments are consumed; the off-side `indent` field marks first-on-line
-  ## tokens. `opts` controls tab/indent policy — see `LexOptions`. `errors` is
+  ## tokens. `opts` controls tab/indent policy - see `LexOptions`. `errors` is
   ## incremented for every unknown/illegal byte encountered (drives `--strict`).
   var lx = initLexer(src, opts)
   result = @[]
   # --- leading UTF-8 BOM (EF BB BF) -------------------------------------------
   # A leading BOM is ALWAYS consumed (nifler strips it). This used to be gated on
   # a non-default policy, relying on the BOM bytes falling through to the
-  # unknown-byte skip otherwise — but now that identifiers accept high bytes
+  # unknown-byte skip otherwise - but now that identifiers accept high bytes
   # (UTF-8 names), an unstripped BOM would glue onto the first identifier. Consume
   # the 3 bytes WITHOUT advancing the column so line-1 indentation is unaffected.
   if lx.n >= 3 and src[0] == '\xEF' and src[1] == '\xBB' and src[2] == '\xBF':
@@ -756,7 +842,7 @@ proc tokenize*(src: string; opts: LexOptions; errors: var int): seq[Token] =
     let c = lx.cur
     if c == ' ' or c == '\t' or c == '\r':
       # Under the default (nifler-compatible) tpSpaces policy, a tab anywhere in
-      # the token stream — leading OR mid-line — is illegal Nim; only tabs inside
+      # the token stream - leading OR mid-line - is illegal Nim; only tabs inside
       # string/char literals and comments (consumed elsewhere) are exempt. One
       # diagnostic per line keeps a tab-indented block from spamming.
       if c == '\t' and lx.opts.tabPolicy == tpSpaces and not lx.tabErrThisLine:
@@ -799,7 +885,7 @@ proc tokenize*(src: string; opts: LexOptions; errors: var int): seq[Token] =
       if lx.peek(1) == '[':
         skipBlockComment(lx)
       elif lx.peek(1) == '#' and lx.peek(2) == '[':
-        # `##[ … ]##` doc block comment. Like a standalone `##` doc comment,
+        # `##[ ... ]##` doc block comment. Like a standalone `##` doc comment,
         # nifler emits a line-leading one as `(comment)` and drops a trailing
         # one. We skip the whole (possibly nested) block, keeping only a
         # line-leading token.
@@ -837,8 +923,8 @@ proc tokenize*(src: string; opts: LexOptions; errors: var int): seq[Token] =
           advance lx
     elif c == '"':
       # A `"` immediately adjacent to a preceding ident/keyword (no space) is a
-      # GENERALIZED string literal (`fmt"..."`, `re"(\w+)"`): it is RAW — escapes
-      # are NOT decoded — and the parser emits it with the "R" suffix. Only the
+      # GENERALIZED string literal (`fmt"..."`, `re"(\w+)"`): it is RAW - escapes
+      # are NOT decoded - and the parser emits it with the "R" suffix. Only the
       # single-quoted form needs interception; `"""..."""` is already raw.
       let adj = result.len > 0 and
                 (result[result.len-1].kind == tkIdent or
@@ -902,7 +988,7 @@ proc tokenize*(src: string; opts: LexOptions; errors: var int): seq[Token] =
       lx.atLineStart = false
       result.add t
     else:
-      # Unknown/illegal byte: record it and skip (recoverable — we keep lexing).
+      # Unknown/illegal byte: record it and skip (recoverable - we keep lexing).
       lx.addDiag(sevError, "unknown-byte",
                  "unknown/illegal byte 0x" & toHex2(uint8(c)) & " skipped",
                  lx.line, lx.col, lx.col)
